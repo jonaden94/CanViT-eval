@@ -1,13 +1,17 @@
 """Shared evaluation configuration — single source of truth for defaults.
 
-No machine-specific defaults. Paths must be provided explicitly or via env vars.
+Dataset paths: env var override > autodetect from known machine paths > error.
 """
 
+import functools
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from canvit_eval.policies import PolicyName
+
+log = logging.getLogger(__name__)
 
 # Canonical model repo — used as default everywhere.
 DEFAULT_MODEL_REPO = "canvit/canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02"
@@ -16,31 +20,40 @@ DEFAULT_MODEL_REPO = "canvit/canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b
 TEACHER_REPO = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 
 
-def ade20k_root() -> Path:
-    """ADE20K root from ADE20K_ROOT env var. Fails clearly if unset."""
-    v = os.environ.get("ADE20K_ROOT")
-    if v is None:
-        raise RuntimeError("ADE20K_ROOT env var not set. Example: ADE20K_ROOT=/datasets/ADE20k/ADEChallengeData2016")
-    return Path(v)
-
-
-_IMAGENET_VAL_KNOWN_PATHS = [
-    "/datasets/ILSVRC/Data/CLS-LOC/val",       # crockett
-    "/datashare/imagenet/ILSVRC2012/val",       # nibi
-]
-
-
-def imagenet_val_dir() -> Path:
-    """ImageNet-1K validation dir. Checks IMAGENET_VAL env var, then known machine paths."""
-    v = os.environ.get("IMAGENET_VAL")
+def _resolve_path(env_var: str, known_paths: list[str], description: str) -> Path:
+    """Resolve a dataset path: env var > known paths > error. Cached + logged."""
+    v = os.environ.get(env_var)
     if v is not None:
+        log.info("%s from env: %s", description, v)
         return Path(v)
-    for p in _IMAGENET_VAL_KNOWN_PATHS:
+    for p in known_paths:
         if Path(p).is_dir():
+            log.info("%s autodetected: %s", description, p)
             return Path(p)
     raise RuntimeError(
-        f"ImageNet val dir not found. Set IMAGENET_VAL env var, "
-        f"or ensure one of {_IMAGENET_VAL_KNOWN_PATHS} exists."
+        f"{description} not found. Set {env_var} env var, "
+        f"or ensure one of {known_paths} exists."
+    )
+
+
+@functools.cache
+def ade20k_root() -> Path:
+    return _resolve_path(
+        env_var="ADE20K_ROOT",
+        known_paths=["/datasets/ADE20k/ADEChallengeData2016"],  # crockett
+        description="ADE20K root",
+    )
+
+
+@functools.cache
+def imagenet_val_dir() -> Path:
+    return _resolve_path(
+        env_var="IMAGENET_VAL",
+        known_paths=[
+            "/datasets/ILSVRC/Data/CLS-LOC/val",       # crockett
+            "/datashare/imagenet/ILSVRC2012/val",       # nibi
+        ],
+        description="ImageNet val dir",
     )
 
 
