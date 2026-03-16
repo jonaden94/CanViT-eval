@@ -14,7 +14,7 @@ from typing import Literal
 
 import torch
 from canvit import RecurrentState, Viewpoint
-from canvit_utils.policies import coarse_to_fine_viewpoints, random_viewpoints
+from canvit.policies import coarse_to_fine_viewpoints, random_viewpoints
 from torch import Tensor
 
 log = logging.getLogger(__name__)
