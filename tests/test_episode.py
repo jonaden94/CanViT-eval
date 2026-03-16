@@ -7,7 +7,7 @@ import pytest
 import torch
 from canvit import Viewpoint
 from canvit.model.pretraining.hub import CanViTForPretrainingHFHub
-from canvit_utils.probes import SegmentationProbe
+from canvit_probes import SegmentationProbe
 
 from canvit_eval.episode import EpisodeStep, run_episode
 from canvit_eval.policies import make_policy

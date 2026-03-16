@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
-from canvit_utils.probes import SegmentationProbe
+from canvit_probes import SegmentationProbe
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm

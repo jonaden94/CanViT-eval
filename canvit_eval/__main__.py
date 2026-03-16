@@ -47,7 +47,7 @@ class ADE20kSegCmd:
             # Load probe for entropy policy
             probe_for_entropy = None
             if self.episode.policy == "entropy_coarse_to_fine":
-                from canvit_utils.probes import SegmentationProbe
+                from canvit_probes import SegmentationProbe
                 probe_for_entropy = SegmentationProbe.from_pretrained(self.probe_repo).to(device).eval()
             extract = canvit_extractor(
                 m, policy_name=self.episode.policy, n_timesteps=self.episode.n_timesteps,
