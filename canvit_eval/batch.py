@@ -17,6 +17,7 @@ Usage:
 import logging
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import get_args
@@ -26,6 +27,9 @@ import tyro
 from canvit_eval.policies import PolicyName
 
 log = logging.getLogger(__name__)
+
+def _timestamp() -> str:
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
 
 # All policies from the PolicyName Literal — single source of truth.
 ALL_POLICIES: list[str] = list(get_args(PolicyName))
@@ -105,11 +109,17 @@ class Args:
     n_runs: int = 5
     n_timesteps: int = 21
     dry_run: bool = False
+    no_timestamp_dir: bool = False
+    """If False (default), creates a timestamped subdirectory inside out_dir."""
 
 
 def main(args: Args) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    jobs = build_eval_matrix(args.out_dir, args.n_runs, args.n_timesteps)
+    out_dir = args.out_dir
+    if not args.no_timestamp_dir:
+        out_dir = args.out_dir / _timestamp()
+        log.info("Output directory: %s", out_dir)
+    jobs = build_eval_matrix(out_dir, args.n_runs, args.n_timesteps)
     log.info("%d total eval jobs", len(jobs))
 
     if args.dry_run:
