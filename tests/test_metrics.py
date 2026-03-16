@@ -1,7 +1,7 @@
 """Tests for evaluation metrics."""
 
 import torch
-from canvit_eval.metrics import IoUAccumulator
+from canvit_probes.metrics import IoUAccumulator
 
 
 def test_perfect_predictions() -> None:

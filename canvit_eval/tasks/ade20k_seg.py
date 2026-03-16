@@ -18,8 +18,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from canvit_eval.config import ade20k_root
-from canvit_eval.datasets.ade20k import IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms
-from canvit_eval.metrics import IoUAccumulator
+from canvit_probes.datasets.ade20k import IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms
+from canvit_probes.metrics import IoUAccumulator
 from canvit_eval.utils import collect_metadata
 
 log = logging.getLogger(__name__)
