@@ -48,9 +48,8 @@ class _Acc:
 
 
 def _default_image_dir() -> Path:
-    root = os.environ.get("ADE20K_ROOT")
-    assert root is not None, "Set ADE20K_ROOT"
-    return Path(root) / "images" / "validation"
+    from canvit_eval.config import ade20k_root
+    return ade20k_root() / "images" / "validation"
 
 
 @dataclass

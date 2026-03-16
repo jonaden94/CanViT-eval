@@ -1,9 +1,10 @@
 """Shared evaluation configuration — single source of truth for defaults.
 
-All task configs compose with these fields. No duplication of default values.
+No machine-specific defaults. Paths must be provided explicitly or via env vars.
 """
 
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from canvit_eval.policies import PolicyName
@@ -11,8 +12,19 @@ from canvit_eval.policies import PolicyName
 # Canonical model repo — used as default everywhere.
 DEFAULT_MODEL_REPO = "canvit/canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02"
 
+# DINOv3 teacher repo.
+TEACHER_REPO = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 
-@dataclass
+
+def ade20k_root() -> Path:
+    """ADE20K root from ADE20K_ROOT env var. Fails clearly if unset."""
+    v = os.environ.get("ADE20K_ROOT")
+    if v is None:
+        raise RuntimeError("ADE20K_ROOT env var not set. Example: ADE20K_ROOT=/datasets/ADE20k/ADEChallengeData2016")
+    return Path(v)
+
+
+@dataclass(frozen=True)
 class EpisodeConfig:
     """How to run CanViT episodes. Shared by all CanViT-based tasks."""
 
@@ -23,13 +35,3 @@ class EpisodeConfig:
     glimpse_px: int = 128
     min_scale: float = 0.05
     max_scale: float = 1.0
-
-
-@dataclass
-class HardwareConfig:
-    """Hardware and performance settings. Shared by all tasks."""
-
-    device: str = "cuda"
-    batch_size: int = 32
-    num_workers: int = 8
-    amp: bool = True
