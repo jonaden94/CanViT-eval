@@ -1,7 +1,6 @@
 """Reconstruction quality: cosine similarity between CanViT canvas and DINOv3 teacher."""
 
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,7 +54,7 @@ class Config:
     model_repo: str
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(policy="random", n_timesteps=10))
     image_dir: Path = field(default_factory=_default_image_dir)
-    output: Path = Path("results/reconstruction.pt")
+    output: Path = Path("results/recon.pt")
     scene_size: int = 512
     device: str = "cuda"
     batch_size: int = 16

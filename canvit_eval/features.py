@@ -4,11 +4,12 @@ Each returns a FeatureExtractor: Tensor[B,C,H,W] → list[Tensor[B,G,G,D]].
 The list has T elements (one per timestep for CanViT, one for passive models).
 """
 
+from collections.abc import Callable
+
 import torch
 import torch.nn.functional as F
 from canvit.model.pretraining.hub import CanViTForPretrainingHFHub
 from canvit_utils.teacher import DINOv3Teacher
-from collections.abc import Callable
 from torch import Tensor
 
 from canvit_eval.episode import run_episode
