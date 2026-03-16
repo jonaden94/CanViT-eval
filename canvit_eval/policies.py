@@ -33,6 +33,11 @@ PolicyName = Literal[
     "constant_full_scene",
 ]
 
+# Subset for IN1K classification (entropy C2F and constant full scene not applicable).
+IN1K_POLICIES: list[PolicyName] = [
+    "coarse_to_fine", "fine_to_coarse", "full_then_random", "random",
+]
+
 GetSpatialFn = Callable[[Tensor], Tensor]
 
 

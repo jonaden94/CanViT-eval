@@ -27,7 +27,7 @@ from typing import Literal, get_args
 
 import tyro
 
-from canvit_eval.policies import PolicyName
+from canvit_eval.policies import IN1K_POLICIES, PolicyName
 
 log = logging.getLogger(__name__)
 
@@ -49,13 +49,11 @@ DINOV3_RESOLUTIONS = [128, 144, 160, 192, 256, 384, 512]
 CANVAS_GRIDS = [(512, 8), (512, 16), (512, 32), (1024, 64)]
 
 # ── IN1K classification constants ──────────────────────────────────────
-
-IN1K_POLICIES = ["coarse_to_fine", "fine_to_coarse", "full_then_random", "random"]
+# IN1K_POLICIES imported from canvit_eval.policies (single source of truth).
 
 # ── Ablation reconstruction constants ──────────────────────────────────
-# Source of truth for HF repo IDs: analysis/ablations/__init__.py in paper repo.
-# Duplicated here because canvit-eval shouldn't depend on the paper repo.
-# If ablation list changes (rare), update both.
+# Single source of truth for ablation HF repo IDs.
+# Paper repo imports this via `from canvit_eval.batch import ABLATION_REPOS`.
 
 ABLATION_REPOS: dict[str, str] = {
     "baseline":      "canvit/canvitb16-abl-baseline-2026-03-02",
