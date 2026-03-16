@@ -88,7 +88,7 @@ def evaluate(cfg: Config) -> Path:
         for imgs in tqdm(loader, desc="Teacher"):
             feats = teacher.forward_norm_features(imgs.to(device))
             plist.append(feats.patches.cpu())
-            clist.append(feats.cls_token.cpu())
+            clist.append(feats.cls.cpu())
         t_patches, t_cls = torch.cat(plist), torch.cat(clist)
         if cfg.teacher_cache is not None:
             cfg.teacher_cache.parent.mkdir(parents=True, exist_ok=True)
