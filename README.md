@@ -4,26 +4,21 @@ Evaluation and benchmarking for CanViT. Produces `.pt` result files consumed by 
 
 All models and probes loaded from HuggingFace Hub. No local checkpoints needed.
 
+Dataset paths are autodetected on known machines (crockett, nibi). Override with `ADE20K_ROOT` / `IMAGENET_VAL` env vars if needed. See `.envrc.example`.
+
 ## Usage
 
 ```bash
-# ADE20K segmentation — CanViT (multi-timestep)
-ADE20K_ROOT=/path/to/ADE20k uv run python -m canvit_eval ade20k-seg \
-    --probe-repo canvit/probe-ade20k-40k-s512-c32-in21k
+# Batch eval — all paper results in one command:
+uv run python -m canvit_eval.batch --n-runs 1          # smoke test
+uv run python -m canvit_eval.batch --n-runs 5          # full paper
+uv run python -m canvit_eval.batch --tasks ade20k-seg   # single task
+uv run python -m canvit_eval.batch --dry-run            # print commands (for SLURM)
 
-# ADE20K segmentation — DINOv3 baseline (single-pass)
-ADE20K_ROOT=/path/to/ADE20k uv run python -m canvit_eval ade20k-seg \
-    --model dinov3 --probe-repo canvit/probe-ade20k-40k-dv3b-128px --eval-resolution 128
-
-# Batch eval (all policies × resolutions × runs)
-ADE20K_ROOT=/path/to/ADE20k uv run python -m canvit_eval.batch --n-runs 5
-
-# IN1K classification
+# Individual evals:
+uv run python -m canvit_eval ade20k-seg --probe-repo canvit/probe-ade20k-40k-s512-c32-in21k
 uv run python -m canvit_eval in1k-clf
-
-# Reconstruction quality (see analysis/ablations in paper repo for model repo IDs)
-ADE20K_ROOT=/path/to/ADE20k uv run python -m canvit_eval reconstruction \
-    --model-repo canvit/canvitb16-abl-<variant>-<date>
+uv run python -m canvit_eval reconstruction --model-repo canvit/canvitb16-abl-...
 ```
 
 ## Architecture
@@ -32,22 +27,17 @@ ADE20K_ROOT=/path/to/ADE20k uv run python -m canvit_eval reconstruction \
 uv run pypatree
 ```
 
-## Dependencies
-
-- [canvit](https://github.com/yberreby/CanViT-PyTorch-Next) (private) — core model + policies
-- [canvit-probes](https://github.com/m2b3/CanViT-probes) — probe definitions, datasets, metrics
-
 ## Tests
 
 ```bash
-uv run pytest tests/ -v
+uv run pytest
 ```
 
 ## Related repos
 
 | Repo | Role |
 |------|------|
-| [CanViT-PyTorch-Next](https://github.com/yberreby/CanViT-PyTorch-Next) | Core model (private) |
+| [CanViT-PyTorch-Next](https://github.com/yberreby/CanViT-PyTorch-Next) (private) | Core model (`canvit` package) |
 | [CanViT-probes](https://github.com/m2b3/CanViT-probes) | Probes, datasets, metrics, training |
 | [CanViT-pretrain](https://github.com/m2b3/CanViT-pretrain) | Model pretraining |
 | [CanViT-Toward-AVFMs](https://github.com/m2b3/CanViT-Toward-AVFMs) | Paper (.pt → JSON → PDF) |
