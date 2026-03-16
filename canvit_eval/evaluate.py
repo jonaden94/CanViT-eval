@@ -15,8 +15,6 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from canvit_eval.utils import collect_metadata
-
 log = logging.getLogger(__name__)
 
 

@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 import torch
 from canvit.model.pretraining.hub import CanViTForPretrainingHFHub
-from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 

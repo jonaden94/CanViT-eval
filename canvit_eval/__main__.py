@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 import torch
 import tyro
 
-from canvit_eval.config import DEFAULT_MODEL_REPO, EpisodeConfig, TEACHER_REPO
+from canvit_eval.config import EpisodeConfig, TEACHER_REPO
 
 log = logging.getLogger(__name__)
 
