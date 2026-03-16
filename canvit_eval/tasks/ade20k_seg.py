@@ -6,18 +6,18 @@ Dataset loading, probe application, IoU computation are SHARED.
 """
 
 import logging
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 from canvit_probes import SegmentationProbe
 from torch import Tensor
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 from canvit_eval.config import ade20k_root
+from canvit_eval.evaluate import evaluate
 from canvit_probes.datasets.ade20k import IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms
 from canvit_probes.metrics import IoUAccumulator
 from canvit_eval.utils import collect_metadata
@@ -40,8 +40,34 @@ class Config:
     amp: bool = True
 
 
-@torch.inference_mode()
-def evaluate(
+class _IoUMetric:
+    """Accumulates per-timestep IoU from spatial features."""
+
+    def __init__(self, probe: SegmentationProbe, device: torch.device) -> None:
+        self._probe = probe
+        self._device = device
+        self._accs: list[IoUAccumulator] = []
+
+    def update(self, t: int, features: Tensor, batch: tuple) -> None:
+        _, masks = batch
+        masks = masks.to(self._device, non_blocking=True)
+        while len(self._accs) <= t:
+            self._accs.append(IoUAccumulator(NUM_CLASSES, IGNORE_LABEL, self._device))
+
+        logits = self._probe(features.float())
+        if logits.shape[-1] != masks.shape[-1]:
+            logits = F.interpolate(logits, size=masks.shape[-2:], mode="bilinear", align_corners=False)
+        self._accs[t].update(logits.argmax(dim=1), masks)
+
+    def compute(self) -> dict:
+        assert len(self._accs) > 0, "No data accumulated"
+        mious = {f"t{t}": acc.compute() for t, acc in enumerate(self._accs)}
+        for k, v in mious.items():
+            log.info("  %s: %.2f%%", k, 100 * v)
+        return {"mious": mious}
+
+
+def run(
     cfg: Config,
     extract_features: Callable[[Tensor], list[Tensor]],
     *,
@@ -52,7 +78,6 @@ def evaluate(
     extract_features: [B, C, H, W] images → list of [B, G, G, D] per timestep.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    torch.set_float32_matmul_precision("high")
     device = torch.device(cfg.device)
 
     probe = SegmentationProbe.from_pretrained(cfg.probe_repo).to(device).eval()
@@ -61,40 +86,12 @@ def evaluate(
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,
                         num_workers=cfg.num_workers, pin_memory=True)
 
-    iou_per_t: list[IoUAccumulator] | None = None
-    amp_dtype = torch.bfloat16 if cfg.amp else torch.float32
-    t_start = time.monotonic()
-
-    with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=cfg.amp):
-        for images, masks in tqdm(loader, desc="ADE20K seg"):
-            images = images.to(device, non_blocking=True)
-            masks = masks.to(device, non_blocking=True)
-
-            features_per_t = extract_features(images)
-            if iou_per_t is None:
-                iou_per_t = [IoUAccumulator(NUM_CLASSES, IGNORE_LABEL, device) for _ in features_per_t]
-
-            for t, features in enumerate(features_per_t):
-                logits = probe(features.float())
-                if logits.shape[-1] != masks.shape[-1]:
-                    logits = torch.nn.functional.interpolate(
-                        logits, size=masks.shape[-2:], mode="bilinear", align_corners=False,
-                    )
-                iou_per_t[t].update(logits.argmax(dim=1), masks)
-
-    assert iou_per_t is not None, "Empty dataset"
-    mious = [iou.compute() for iou in iou_per_t]
-    wall_time = time.monotonic() - t_start
-
-    for t, m in enumerate(mious):
-        log.info("  t%d: %.2f%%", t, 100 * m)
-
-    results = {
-        "mious": {f"t{t}": m for t, m in enumerate(mious)},
-        "metadata": {**(metadata or {}), **collect_metadata(cfg),
-                     "wall_time_seconds": wall_time, "n_images": len(dataset)},
-    }
-    cfg.output.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(results, cfg.output)
-    log.info("Saved to %s", cfg.output)
-    return cfg.output
+    return evaluate(
+        loader=loader,
+        extract_features=extract_features,
+        metric=_IoUMetric(probe, device),
+        output=cfg.output,
+        device=device,
+        amp=cfg.amp,
+        metadata={**(metadata or {}), **collect_metadata(cfg)},
+    )

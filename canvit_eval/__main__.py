@@ -36,7 +36,7 @@ class ADE20kSegCmd:
 
     def run(self) -> None:
         from canvit_eval.features import canvit_extractor, dinov3_extractor
-        from canvit_eval.tasks.ade20k_seg import Config, evaluate
+        from canvit_eval.tasks.ade20k_seg import Config, run
 
         device = torch.device(self.device)
 
@@ -67,7 +67,7 @@ class ADE20kSegCmd:
             probe_repo=self.probe_repo, output=self.output, scene_size=self.scene_size,
             device=self.device, batch_size=self.batch_size, num_workers=self.num_workers,
         )
-        evaluate(cfg, extract, metadata=meta)
+        run(cfg, extract, metadata=meta)
 
 
 @dataclass
