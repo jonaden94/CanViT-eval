@@ -70,8 +70,7 @@ def eval_batches(
 
     with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp):
         for batch in tqdm(loader, desc="Evaluating"):
-            # First element is always images
-            images = batch[0].to(device, non_blocking=True) if isinstance(batch, (tuple, list)) else batch.to(device, non_blocking=True)
+            images = batch[0].to(device, non_blocking=True)
             B = images.shape[0]
 
             policy = make_policy(

@@ -31,8 +31,8 @@ class FlatImageDataset(Dataset):
     def __len__(self) -> int:
         return len(self.paths)
 
-    def __getitem__(self, idx: int) -> Tensor:
-        return self.transform(Image.open(self.paths[idx]).convert("RGB"))
+    def __getitem__(self, idx: int) -> tuple[Tensor]:
+        return (self.transform(Image.open(self.paths[idx]).convert("RGB")),)
 
 
 @dataclass
@@ -102,7 +102,7 @@ def evaluate(cfg: Config) -> Path:
 
     for br in eval_batches(model=model, loader=loader, episode_cfg=cfg.episode,
                            canvas_grid=canvas_grid, device=device, amp=cfg.amp):
-        B = br.batch.shape[0] if not isinstance(br.batch, tuple) else br.batch[0].shape[0]
+        B = br.batch[0].shape[0]
         raw_p = t_patches[idx:idx + B].to(device).float()
         raw_c = t_cls[idx:idx + B].to(device).float()
         norm_p, norm_c = scene_std(raw_p), cls_std(raw_c.unsqueeze(1)).squeeze(1)

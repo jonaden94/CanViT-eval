@@ -74,8 +74,7 @@ def evaluate(
 
     with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp):
         for batch in tqdm(loader, desc="Evaluating"):
-            images = batch[0] if isinstance(batch, (tuple, list)) else batch
-            images = images.to(device, non_blocking=True)
+            images = batch[0].to(device, non_blocking=True)
             n_images += images.shape[0]
 
             features_per_t = extract_features(images)
