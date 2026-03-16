@@ -1,11 +1,17 @@
 """Batch evaluation: reproduce ALL paper ADE20K results.
 
-Runs all policy × resolution × run combinations via subprocess.
-Skips existing output files (safe to interrupt and resume).
+Generates the full eval matrix, then either runs sequentially (default)
+or prints sbatch commands for parallel SLURM submission (--dry-run).
 
 Usage:
-    ADE20K_ROOT=... uv run python -m canvit_eval.batch
-    ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 1  # quick smoke test
+    # Sequential (crockett, single GPU):
+    ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 5
+
+    # Print SLURM commands (Nibi, parallel):
+    ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 5 --dry-run
+
+    # Quick smoke test:
+    ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 1
 """
 
 import logging
@@ -42,12 +48,55 @@ def _probe_repo(scene: int, grid: int) -> str:
     return f"canvit/probe-ade20k-40k-s{scene}-c{grid}-in21k"
 
 
-def _run(args: list[str], out: Path) -> None:
-    if out.exists():
-        log.info("SKIP %s (exists)", out.name)
-        return
-    log.info("RUN  %s", out.name)
-    subprocess.run([sys.executable, "-m", "canvit_eval"] + args, check=True)
+@dataclass
+class EvalJob:
+    """One evaluation to run."""
+    args: list[str]
+    output: Path
+
+
+def build_eval_matrix(out_dir: Path, n_runs: int, n_timesteps: int) -> list[EvalJob]:
+    """Generate the full list of eval jobs. Pure function, no side effects."""
+    jobs: list[EvalJob] = []
+
+    # CanViT multi-timestep policy evals
+    for scene, grid, bs in RESOLUTIONS:
+        probe = _probe_repo(scene, grid)
+        for policy in ALL_POLICIES:
+            n = 1 if policy in DETERMINISTIC else n_runs
+            for run in range(n):
+                out = out_dir / f"{policy}_s{scene}_c{grid}_run{run}.pt"
+                jobs.append(EvalJob(
+                    args=["ade20k-seg", "--probe-repo", probe,
+                          "--episode.policy", policy, "--episode.n-timesteps", str(n_timesteps),
+                          "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
+                          "--batch-size", str(bs), "--output", str(out)],
+                    output=out,
+                ))
+
+    # DINOv3 baseline probes
+    for v in DINOV3_VARIANTS:
+        for res in DINOV3_RESOLUTIONS:
+            out = out_dir / f"{v}_{res}px.pt"
+            jobs.append(EvalJob(
+                args=["ade20k-seg", "--model", "dinov3",
+                      "--probe-repo", f"canvit/probe-ade20k-40k-{v}-{res}px",
+                      "--eval-resolution", str(res), "--output", str(out)],
+                output=out,
+            ))
+
+    # CanViT single-glimpse probes (beating teacher table)
+    for scene, grid in CANVAS_GRIDS:
+        out = out_dir / f"canvit_s{scene}-c{grid}-in21k.pt"
+        jobs.append(EvalJob(
+            args=["ade20k-seg", "--probe-repo", _probe_repo(scene, grid),
+                  "--episode.policy", "coarse_to_fine", "--episode.n-timesteps", "1",
+                  "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
+                  "--output", str(out)],
+            output=out,
+        ))
+
+    return jobs
 
 
 @dataclass
@@ -55,47 +104,32 @@ class Args:
     out_dir: Path = Path("results")
     n_runs: int = 5
     n_timesteps: int = 21
+    dry_run: bool = False
 
 
 def main(args: Args) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    d = args.out_dir
-    d.mkdir(parents=True, exist_ok=True)
+    jobs = build_eval_matrix(args.out_dir, args.n_runs, args.n_timesteps)
+    log.info("%d total eval jobs", len(jobs))
 
-    total = 0
+    if args.dry_run:
+        for job in jobs:
+            cmd = " ".join(["uv", "run", "python", "-m", "canvit_eval"] + job.args)
+            print(cmd)
+        return
 
-    # CanViT multi-timestep policy evals
-    for scene, grid, bs in RESOLUTIONS:
-        probe = _probe_repo(scene, grid)
-        for policy in ALL_POLICIES:
-            n = 1 if policy in DETERMINISTIC else args.n_runs
-            for run in range(n):
-                out = d / f"{policy}_s{scene}_c{grid}_run{run}.pt"
-                _run(["ade20k-seg", "--probe-repo", probe,
-                      "--episode.policy", policy, "--episode.n-timesteps", str(args.n_timesteps),
-                      "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
-                      "--batch-size", str(bs), "--output", str(out)], out)
-                total += 1
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    done, skipped = 0, 0
+    for job in jobs:
+        if job.output.exists():
+            log.info("SKIP %s (exists)", job.output.name)
+            skipped += 1
+            continue
+        log.info("RUN  %s", job.output.name)
+        subprocess.run([sys.executable, "-m", "canvit_eval"] + job.args, check=True)
+        done += 1
 
-    # DINOv3 baseline probes
-    for v in DINOV3_VARIANTS:
-        for res in DINOV3_RESOLUTIONS:
-            out = d / f"{v}_{res}px.pt"
-            _run(["ade20k-seg", "--model", "dinov3",
-                  "--probe-repo", f"canvit/probe-ade20k-40k-{v}-{res}px",
-                  "--eval-resolution", str(res), "--output", str(out)], out)
-            total += 1
-
-    # CanViT single-glimpse probes (beating teacher table)
-    for scene, grid in CANVAS_GRIDS:
-        out = d / f"canvit_s{scene}-c{grid}-in21k.pt"
-        _run(["ade20k-seg", "--probe-repo", _probe_repo(scene, grid),
-              "--episode.policy", "coarse_to_fine", "--episode.n-timesteps", "1",
-              "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
-              "--output", str(out)], out)
-        total += 1
-
-    log.info("DONE (%d evals scheduled)", total)
+    log.info("DONE: %d run, %d skipped, %d total", done, skipped, len(jobs))
 
 
 if __name__ == "__main__":
