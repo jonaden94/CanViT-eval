@@ -21,9 +21,9 @@ ADE20K_ROOT=/path/to/ADE20k uv run python -m canvit_eval.batch --n-runs 5
 # IN1K classification
 uv run python -m canvit_eval in1k-clf
 
-# Reconstruction quality
+# Reconstruction quality (see analysis/ablations in paper repo for model repo IDs)
 ADE20K_ROOT=/path/to/ADE20k uv run python -m canvit_eval reconstruction \
-    --model-repo canvit/canvitb16-abl-baseline-2026-03-15
+    --model-repo canvit/canvitb16-abl-<variant>-<date>
 ```
 
 ## Architecture
