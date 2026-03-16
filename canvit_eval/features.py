@@ -29,8 +29,13 @@ def canvit_extractor(
     min_scale: float = 0.05,
     max_scale: float = 1.0,
     probe: torch.nn.Module | None = None,
+    viewpoint_log: list[dict] | None = None,
 ) -> "Callable[[Tensor], list[Tensor]]":
-    """Create a CanViT feature extractor (multi-timestep episode)."""
+    """Create a CanViT feature extractor (multi-timestep episode).
+
+    If viewpoint_log is provided, appends per-batch viewpoint metadata
+    (first item in batch) for reproducibility.
+    """
     device = next(model.parameters()).device
 
     def extract(images: Tensor) -> list[Tensor]:
@@ -44,6 +49,16 @@ def canvit_extractor(
             model=model, images=images, policy=policy,
             n_timesteps=n_timesteps, canvas_grid=canvas_grid, glimpse_px=glimpse_px,
         )
+        if viewpoint_log is not None and len(viewpoint_log) == 0:
+            # Log viewpoints from first batch only (for metadata)
+            for step in steps:
+                vp = step.viewpoint
+                viewpoint_log.append({
+                    "t": step.t,
+                    "center_y": vp.centers[0, 0].item(),
+                    "center_x": vp.centers[0, 1].item(),
+                    "scale": vp.scales[0].item(),
+                })
         return [
             model.get_spatial(step.state.canvas).view(B, canvas_grid, canvas_grid, -1)
             for step in steps
