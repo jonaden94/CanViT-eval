@@ -1,8 +1,11 @@
 """Tests for batch eval matrix generation — pure, no GPU/data needed."""
 
+import re
 from pathlib import Path
 
 from canvit_eval.batch import ALL_POLICIES, DETERMINISTIC, build_eval_matrix
+
+_TS_RE = re.compile(r"\d{8}T\d{6}Z")
 
 
 def test_all_policies_from_literal():
@@ -44,3 +47,9 @@ def test_all_outputs_under_out_dir():
     jobs = build_eval_matrix(out_dir, n_runs=1, n_timesteps=21)
     for j in jobs:
         assert j.output.parent == out_dir
+
+
+def test_filenames_contain_timestamp():
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21)
+    for j in jobs:
+        assert _TS_RE.search(j.output.name), f"No timestamp in {j.output.name}"
