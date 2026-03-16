@@ -6,9 +6,8 @@ The list has T elements (one per timestep for CanViT, one for passive models).
 
 import torch
 import torch.nn.functional as F
-from canvit import sample_at_viewpoint
 from canvit.model.pretraining.hub import CanViTForPretrainingHFHub
-from canvit_utils.teacher import DINOv3Teacher, load_teacher
+from canvit_utils.teacher import DINOv3Teacher
 from collections.abc import Callable
 from torch import Tensor
 

@@ -38,13 +38,6 @@ def load_model(model_repo: str, device: torch.device) -> CanViTForPretrainingHFH
     return model
 
 
-def resolve_canvas_grid(cfg: EpisodeConfig, patch_size: int, scene_size: int) -> int:
-    """Resolve canvas_grid: explicit value or derive from scene_size / patch_size."""
-    if cfg.canvas_grid is not None:
-        return cfg.canvas_grid
-    return scene_size // patch_size
-
-
 def eval_batches(
     *,
     model: CanViTForPretrainingHFHub,
