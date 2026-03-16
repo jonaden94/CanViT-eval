@@ -1,0 +1,12 @@
+# Machine-specific environment variables.
+# Copy to .envrc and fill in paths for your machine.
+# .envrc is gitignored — each machine has its own.
+#
+# Known paths:
+#   Crockett: ADE20K_ROOT=/datasets/ADE20k/ADEChallengeData2016
+#             IMAGENET_VAL=/datasets/ILSVRC/Data/CLS-LOC/val
+#   Nibi:     ADE20K_ROOT=$SLURM_TMPDIR/ADEChallengeData2016 (extracted per job)
+#             IMAGENET_VAL=/datashare/imagenet/ILSVRC2012/val
+
+export ADE20K_ROOT=
+export IMAGENET_VAL=

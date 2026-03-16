@@ -24,12 +24,24 @@ def ade20k_root() -> Path:
     return Path(v)
 
 
+_IMAGENET_VAL_KNOWN_PATHS = [
+    "/datasets/ILSVRC/Data/CLS-LOC/val",       # crockett
+    "/datashare/imagenet/ILSVRC2012/val",       # nibi
+]
+
+
 def imagenet_val_dir() -> Path:
-    """ImageNet-1K validation dir from IMAGENET_VAL env var. Must contain class subdirs."""
+    """ImageNet-1K validation dir. Checks IMAGENET_VAL env var, then known machine paths."""
     v = os.environ.get("IMAGENET_VAL")
-    if v is None:
-        raise RuntimeError("IMAGENET_VAL env var not set. Should point to the ImageNet val dir containing class subdirs.")
-    return Path(v)
+    if v is not None:
+        return Path(v)
+    for p in _IMAGENET_VAL_KNOWN_PATHS:
+        if Path(p).is_dir():
+            return Path(p)
+    raise RuntimeError(
+        f"ImageNet val dir not found. Set IMAGENET_VAL env var, "
+        f"or ensure one of {_IMAGENET_VAL_KNOWN_PATHS} exists."
+    )
 
 
 @dataclass(frozen=True)
