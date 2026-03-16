@@ -1,13 +1,14 @@
 """Batch evaluation: reproduce ALL paper ADE20K results.
 
-Generates the full eval matrix, then either runs sequentially (default)
-or prints sbatch commands for parallel SLURM submission (--dry-run).
+Each result file gets a UTC timestamp in its filename, so runs from different
+days/code versions coexist safely. The export script groups by
+(policy, scene, grid), treating each file as one independent run.
 
 Usage:
     # Sequential (crockett, single GPU):
     ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 5
 
-    # Print SLURM commands (Nibi, parallel):
+    # Print commands for parallel SLURM submission:
     ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 5 --dry-run
 
     # Quick smoke test:
@@ -28,8 +29,10 @@ from canvit_eval.policies import PolicyName
 
 log = logging.getLogger(__name__)
 
-def _timestamp() -> str:
+
+def _utc_timestamp() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+
 
 # All policies from the PolicyName Literal — single source of truth.
 ALL_POLICIES: list[str] = list(get_args(PolicyName))
@@ -60,8 +63,13 @@ class EvalJob:
 
 
 def build_eval_matrix(out_dir: Path, n_runs: int, n_timesteps: int) -> list[EvalJob]:
-    """Generate the full list of eval jobs. Pure function, no side effects."""
+    """Generate the full list of eval jobs. Pure function, no side effects.
+
+    Each output filename includes a UTC timestamp so runs from different
+    sessions coexist. No skip-if-exists logic needed.
+    """
     jobs: list[EvalJob] = []
+    ts = _utc_timestamp()
 
     # CanViT multi-timestep policy evals
     for scene, grid, bs in RESOLUTIONS:
@@ -69,7 +77,7 @@ def build_eval_matrix(out_dir: Path, n_runs: int, n_timesteps: int) -> list[Eval
         for policy in ALL_POLICIES:
             n = 1 if policy in DETERMINISTIC else n_runs
             for run in range(n):
-                out = out_dir / f"{policy}_s{scene}_c{grid}_run{run}.pt"
+                out = out_dir / f"{policy}_s{scene}_c{grid}_{ts}_r{run}.pt"
                 jobs.append(EvalJob(
                     args=["ade20k-seg", "--probe-repo", probe,
                           "--episode.policy", policy, "--episode.n-timesteps", str(n_timesteps),
@@ -78,10 +86,10 @@ def build_eval_matrix(out_dir: Path, n_runs: int, n_timesteps: int) -> list[Eval
                     output=out,
                 ))
 
-    # DINOv3 baseline probes
+    # DINOv3 baseline probes (deterministic — 1 run each)
     for v in DINOV3_VARIANTS:
         for res in DINOV3_RESOLUTIONS:
-            out = out_dir / f"{v}_{res}px.pt"
+            out = out_dir / f"{v}_{res}px_{ts}.pt"
             jobs.append(EvalJob(
                 args=["ade20k-seg", "--model", "dinov3",
                       "--probe-repo", f"canvit/probe-ade20k-40k-{v}-{res}px",
@@ -89,9 +97,9 @@ def build_eval_matrix(out_dir: Path, n_runs: int, n_timesteps: int) -> list[Eval
                 output=out,
             ))
 
-    # CanViT single-glimpse probes (beating teacher table)
+    # CanViT single-glimpse probes (deterministic — 1 run each)
     for scene, grid in CANVAS_GRIDS:
-        out = out_dir / f"canvit_s{scene}-c{grid}-in21k.pt"
+        out = out_dir / f"canvit_s{scene}_c{grid}_{ts}.pt"
         jobs.append(EvalJob(
             args=["ade20k-seg", "--probe-repo", _probe_repo(scene, grid),
                   "--episode.policy", "coarse_to_fine", "--episode.n-timesteps", "1",
@@ -109,17 +117,11 @@ class Args:
     n_runs: int = 5
     n_timesteps: int = 21
     dry_run: bool = False
-    no_timestamp_dir: bool = False
-    """If False (default), creates a timestamped subdirectory inside out_dir."""
 
 
 def main(args: Args) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    out_dir = args.out_dir
-    if not args.no_timestamp_dir:
-        out_dir = args.out_dir / _timestamp()
-        log.info("Output directory: %s", out_dir)
-    jobs = build_eval_matrix(out_dir, args.n_runs, args.n_timesteps)
+    jobs = build_eval_matrix(args.out_dir, args.n_runs, args.n_timesteps)
     log.info("%d total eval jobs", len(jobs))
 
     if args.dry_run:
@@ -129,17 +131,13 @@ def main(args: Args) -> None:
         return
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    done, skipped = 0, 0
+    done = 0
     for job in jobs:
-        if job.output.exists():
-            log.info("SKIP %s (exists)", job.output.name)
-            skipped += 1
-            continue
         log.info("RUN  %s", job.output.name)
         subprocess.run([sys.executable, "-m", "canvit_eval"] + job.args, check=True)
         done += 1
 
-    log.info("DONE: %d run, %d skipped, %d total", done, skipped, len(jobs))
+    log.info("DONE: %d/%d jobs completed", done, len(jobs))
 
 
 if __name__ == "__main__":
