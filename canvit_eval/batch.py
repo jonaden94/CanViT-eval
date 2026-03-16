@@ -1,17 +1,20 @@
 """Batch evaluation: reproduce ALL paper results in one command.
 
 Covers: ADE20K segmentation, IN1K classification, ablation reconstruction.
-Each result file includes a UTC timestamp in its filename.
+Results go to task-specific subdirs: results/ade20k_seg/, results/in1k_clf/, results/recon/.
+Each file includes a UTC timestamp in its filename.
 
 Usage:
-    # All tasks, n=1 smoke test:
+    # Sequential (crockett, single GPU):
     ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 1
 
-    # ADE20K seg only:
+    # Single task:
     ADE20K_ROOT=... uv run python -m canvit_eval.batch --tasks ade20k-seg --n-runs 5
 
-    # Print commands (for SLURM):
-    ADE20K_ROOT=... uv run python -m canvit_eval.batch --dry-run
+    # SLURM array (Nibi — many short jobs >> 1 long one):
+    uv run python -m canvit_eval.batch --dry-run --n-runs 5 > /tmp/eval_cmds.txt
+    sbatch --array=1-$(wc -l < /tmp/eval_cmds.txt) eval.sbatch
+    # In eval.sbatch: sed -n "${SLURM_ARRAY_TASK_ID}p" /tmp/eval_cmds.txt | bash
 """
 
 import logging
@@ -93,6 +96,7 @@ class EvalJob:
 
 def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> list[EvalJob]:
     jobs: list[EvalJob] = []
+    d = out_dir / "ade20k_seg"
 
     # CanViT multi-timestep policy evals
     for scene, grid, bs in ADE20K_RESOLUTIONS:
@@ -100,7 +104,7 @@ def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> l
         for policy in ALL_POLICIES:
             n = 1 if policy in DETERMINISTIC else n_runs
             for run in range(n):
-                out = out_dir / f"{policy}_s{scene}_c{grid}_{ts}_r{run}.pt"
+                out = d / f"{policy}_s{scene}_c{grid}_{ts}_r{run}.pt"
                 jobs.append(EvalJob(
                     task="ade20k-seg",
                     args=["ade20k-seg", "--probe-repo", probe,
@@ -113,7 +117,7 @@ def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> l
     # DINOv3 baseline probes (deterministic)
     for v in DINOV3_VARIANTS:
         for res in DINOV3_RESOLUTIONS:
-            out = out_dir / f"{v}_{res}px_{ts}.pt"
+            out = d / f"{v}_{res}px_{ts}.pt"
             jobs.append(EvalJob(
                 task="ade20k-seg",
                 args=["ade20k-seg", "--model", "dinov3",
@@ -124,7 +128,7 @@ def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> l
 
     # CanViT single-glimpse probes (deterministic — full-scene viewpoint)
     for scene, grid in CANVAS_GRIDS:
-        out = out_dir / f"canvit_s{scene}_c{grid}_{ts}.pt"
+        out = d / f"canvit_s{scene}_c{grid}_{ts}.pt"
         jobs.append(EvalJob(
             task="ade20k-seg",
             args=["ade20k-seg", "--probe-repo", _probe_repo(scene, grid),
@@ -139,9 +143,10 @@ def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> l
 
 def _in1k_clf_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> list[EvalJob]:
     jobs: list[EvalJob] = []
+    d = out_dir / "in1k_clf"
     for policy in IN1K_POLICIES:
         for run in range(n_runs):
-            out = out_dir / f"in1k_{policy}_{ts}_r{run}.pt"
+            out = d / f"in1k_{policy}_{ts}_r{run}.pt"
             jobs.append(EvalJob(
                 task="in1k-clf",
                 args=["in1k-clf",
@@ -154,9 +159,10 @@ def _in1k_clf_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> lis
 
 def _recon_jobs(out_dir: Path, n_runs: int, ts: str) -> list[EvalJob]:
     jobs: list[EvalJob] = []
+    d = out_dir / "recon"
     for slug, repo in ABLATION_REPOS.items():
         for run in range(n_runs):
-            out = out_dir / f"recon_{slug}_{ts}_r{run}.pt"
+            out = d / f"recon_{slug}_{ts}_r{run}.pt"
             jobs.append(EvalJob(
                 task="recon",
                 args=["reconstruction", "--model-repo", repo, "--output", str(out)],

@@ -54,11 +54,12 @@ def test_output_paths_unique():
     assert len(paths) == len(set(paths)), "Duplicate output paths!"
 
 
-def test_all_outputs_under_out_dir():
+def test_all_outputs_under_task_subdirs():
     out_dir = Path("/tmp/test_results")
     jobs = build_eval_matrix(out_dir, n_runs=1, n_timesteps=21, tasks=ALL_TASKS)
-    for j in jobs:
-        assert j.output.parent == out_dir
+    expected_parents = {out_dir / "ade20k_seg", out_dir / "in1k_clf", out_dir / "recon"}
+    actual_parents = {j.output.parent for j in jobs}
+    assert actual_parents == expected_parents
 
 
 def test_filenames_contain_timestamp():
