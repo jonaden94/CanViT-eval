@@ -33,6 +33,7 @@ class ADE20kSegCmd:
     episode: EpisodeConfig = field(default_factory=EpisodeConfig)
     # DINOv3-specific (ignored for CanViT):
     eval_resolution: int = 512
+    teacher_repo: str = TEACHER_REPO
 
     def run(self) -> None:
         from canvit_eval.features import canvit_extractor, dinov3_extractor
@@ -59,9 +60,9 @@ class ADE20kSegCmd:
                     "policy": self.episode.policy, "n_timesteps": self.episode.n_timesteps}
         else:
             from canvit_utils.teacher import load_teacher
-            teacher = load_teacher(TEACHER_REPO, device)
+            teacher = load_teacher(self.teacher_repo, device)
             extract = dinov3_extractor(teacher, eval_resolution=self.eval_resolution)
-            meta = {"model": "dinov3-vitb16", "eval_resolution": self.eval_resolution}
+            meta = {"model": self.teacher_repo, "eval_resolution": self.eval_resolution}
 
         cfg = Config(
             probe_repo=self.probe_repo, output=self.output, scene_size=self.scene_size,

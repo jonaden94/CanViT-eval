@@ -42,7 +42,10 @@ ALL_POLICIES: list[str] = list(get_args(PolicyName))
 DETERMINISTIC: set[str] = {"constant_full_scene"}
 ADE20K_RESOLUTIONS = [(512, 32, 32), (1024, 64, 8)]  # (scene_px, canvas_grid, batch_size)
 
-DINOV3_VARIANTS = ["dv3b", "dv3s"]
+DINOV3_VARIANTS: dict[str, str] = {
+    "dv3b": "facebook/dinov3-vitb16-pretrain-lvd1689m",
+    "dv3s": "facebook/dinov3-vits16-pretrain-lvd1689m",
+}
 DINOV3_RESOLUTIONS = [128, 144, 160, 192, 256, 384, 512]
 
 # CanViT single-glimpse probes (beating teacher table).
@@ -113,13 +116,14 @@ def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> l
                 ))
 
     # DINOv3 baseline probes (deterministic)
-    for v in DINOV3_VARIANTS:
+    for v, teacher_repo in DINOV3_VARIANTS.items():
         for res in DINOV3_RESOLUTIONS:
             out = d / f"{v}_{res}px_{ts}.pt"
             jobs.append(EvalJob(
                 task="ade20k-seg",
                 args=["ade20k-seg", "--model", "dinov3",
                       "--probe-repo", f"canvit/probe-ade20k-40k-{v}-{res}px",
+                      "--teacher-repo", teacher_repo,
                       "--eval-resolution", str(res), "--output", str(out)],
                 output=out,
             ))
