@@ -20,7 +20,8 @@ def test_features():
 
 
 def test_policies():
-    from canvit_eval.policies import make_policy, PolicyName, StaticPolicy, EntropyGuidedC2F
+    from canvit_eval.policies import make_policy, PolicyName, IN1K_POLICIES, StaticPolicy, EntropyGuidedC2F
+    assert len(IN1K_POLICIES) == 4
 
 
 def test_runner():
@@ -28,7 +29,7 @@ def test_runner():
 
 
 def test_utils():
-    from canvit_eval.utils import collect_metadata, get_git_commit
+    from canvit_eval.utils import collect_metadata
 
 
 def test_batch():
