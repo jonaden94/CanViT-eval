@@ -15,13 +15,11 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from canvit_eval.config import EpisodeConfig, HardwareConfig
+from canvit_eval.config import EpisodeConfig, TEACHER_REPO
 from canvit_eval.runner import eval_batches, load_model
 from canvit_eval.utils import collect_metadata
 
 log = logging.getLogger(__name__)
-
-TEACHER_REPO = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
@@ -56,17 +54,20 @@ def _default_image_dir() -> Path:
 class Config:
     model_repo: str
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(policy="random", n_timesteps=10))
-    hw: HardwareConfig = field(default_factory=lambda: HardwareConfig(batch_size=16, num_workers=4))
     image_dir: Path = field(default_factory=_default_image_dir)
     output: Path = Path("results/reconstruction.pt")
     scene_size: int = 512
+    device: str = "cuda"
+    batch_size: int = 16
+    num_workers: int = 4
+    amp: bool = True
     teacher_cache: Path | None = None
 
 
 @torch.inference_mode()
 def evaluate(cfg: Config) -> Path:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    device = torch.device(cfg.hw.device)
+    device = torch.device(cfg.device)
 
     model = load_model(cfg.model_repo, device)
     canvas_grid = cfg.episode.canvas_grid or cfg.scene_size // model.backbone.patch_size_px
@@ -74,7 +75,7 @@ def evaluate(cfg: Config) -> Path:
     assert scene_std.initialized
 
     dataset = FlatImageDataset(cfg.image_dir, preprocess(cfg.scene_size))
-    loader = DataLoader(dataset, batch_size=cfg.hw.batch_size, num_workers=cfg.hw.num_workers,
+    loader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers,
                         pin_memory=True, shuffle=False)
 
     # Teacher features
@@ -101,7 +102,7 @@ def evaluate(cfg: Config) -> Path:
     t0 = time.perf_counter()
 
     for br in eval_batches(model=model, loader=loader, episode_cfg=cfg.episode,
-                           canvas_grid=canvas_grid, device=device, amp=cfg.hw.amp):
+                           canvas_grid=canvas_grid, device=device, amp=cfg.amp):
         B = br.batch.shape[0] if not isinstance(br.batch, tuple) else br.batch[0].shape[0]
         raw_p = t_patches[idx:idx + B].to(device).float()
         raw_c = t_cls[idx:idx + B].to(device).float()

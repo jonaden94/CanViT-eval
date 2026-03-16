@@ -11,7 +11,7 @@ from safetensors.torch import load_file
 from torch import nn
 from torch.utils.data import DataLoader
 
-from canvit_eval.config import EpisodeConfig, HardwareConfig
+from canvit_eval.config import EpisodeConfig
 from canvit_eval.datasets.imagenet import make_in1k_dataset
 from canvit_eval.runner import eval_batches, load_model
 from canvit_eval.utils import collect_metadata
@@ -30,16 +30,19 @@ def _load_probe(repo: str, device: torch.device) -> nn.Linear:
 @dataclass
 class Config:
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(canvas_grid=32))
-    hw: HardwareConfig = field(default_factory=lambda: HardwareConfig(batch_size=64))
     probe_repo: str = "yberreby/dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe"
     val_dir: Path = Path("/datashare/imagenet/ILSVRC2012/val")
     output: Path = Path("results/in1k_clf.pt")
+    device: str = "cuda"
+    batch_size: int = 64
+    num_workers: int = 8
+    amp: bool = True
 
 
 @torch.inference_mode()
 def evaluate(cfg: Config) -> Path:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    device = torch.device(cfg.hw.device)
+    device = torch.device(cfg.device)
 
     model = load_model(cfg.episode.model_repo, device)
     probe = _load_probe(cfg.probe_repo, device)
@@ -50,8 +53,8 @@ def evaluate(cfg: Config) -> Path:
 
     img_size = canvas_grid * model.backbone.patch_size_px
     dataset = make_in1k_dataset(cfg.val_dir, img_size)
-    loader = DataLoader(dataset, batch_size=cfg.hw.batch_size, shuffle=False,
-                        num_workers=cfg.hw.num_workers, pin_memory=True)
+    loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,
+                        num_workers=cfg.num_workers, pin_memory=True)
     N, T = len(dataset), cfg.episode.n_timesteps
 
     all_top_k = torch.zeros(N, T, TOP_K, dtype=torch.int16)
@@ -61,7 +64,7 @@ def evaluate(cfg: Config) -> Path:
     processed = 0
 
     for br in eval_batches(model=model, loader=loader, episode_cfg=cfg.episode,
-                           canvas_grid=canvas_grid, device=device, amp=cfg.hw.amp):
+                           canvas_grid=canvas_grid, device=device, amp=cfg.amp):
         _, labels = br.batch
         labels_gpu = labels.to(device, non_blocking=True)
         B = labels.shape[0]

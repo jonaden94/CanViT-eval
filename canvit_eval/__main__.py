@@ -84,11 +84,11 @@ class IN1KClfCmd:
 
     def run(self) -> None:
         from canvit_eval.tasks.in1k_clf import Config, evaluate
-        cfg = Config(episode=self.episode, probe_repo=self.probe_repo,
-                     val_dir=self.val_dir, output=self.output)
-        cfg.hw.device = self.device
-        cfg.hw.batch_size = self.batch_size
-        cfg.hw.num_workers = self.num_workers
+        cfg = Config(
+            episode=self.episode, probe_repo=self.probe_repo,
+            val_dir=self.val_dir, output=self.output,
+            device=self.device, batch_size=self.batch_size, num_workers=self.num_workers,
+        )
         evaluate(cfg)
 
 
@@ -106,11 +106,12 @@ class ReconCmd:
 
     def run(self) -> None:
         from canvit_eval.tasks.reconstruction import Config, evaluate
-        cfg = Config(model_repo=self.model_repo, episode=self.episode,
-                     output=self.output, scene_size=self.scene_size,
-                     teacher_cache=self.teacher_cache)
-        cfg.hw.device = self.device
-        cfg.hw.batch_size = self.batch_size
+        cfg = Config(
+            model_repo=self.model_repo, episode=self.episode,
+            output=self.output, scene_size=self.scene_size,
+            device=self.device, batch_size=self.batch_size,
+            teacher_cache=self.teacher_cache,
+        )
         evaluate(cfg)
 
 

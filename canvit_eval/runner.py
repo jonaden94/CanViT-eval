@@ -15,7 +15,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from canvit_eval.config import EpisodeConfig, HardwareConfig
+from canvit_eval.config import EpisodeConfig
 from canvit_eval.episode import EpisodeStep, run_episode
 from canvit_eval.policies import make_policy
 
