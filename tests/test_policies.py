@@ -1,20 +1,22 @@
 """Tests for viewing policies."""
 
 import torch
+from canvit.policies import level_viewpoints
 from canvit_eval.policies import (
     PolicyName, StaticPolicy, fine_to_coarse_viewpoints,
-    make_policy, _level_viewpoints,
+    make_policy,
 )
 
 
 def test_level_viewpoints_count() -> None:
-    assert len(_level_viewpoints(0)) == 1    # full scene
-    assert len(_level_viewpoints(1)) == 4    # 2×2
-    assert len(_level_viewpoints(2)) == 16   # 4×4
+    """Tests the core canvit.policies.level_viewpoints (imported by eval)."""
+    assert len(level_viewpoints(0)) == 1    # full scene
+    assert len(level_viewpoints(1)) == 4    # 2×2
+    assert len(level_viewpoints(2)) == 16   # 4×4
 
 
 def test_level0_is_full_scene() -> None:
-    vps = _level_viewpoints(0)
+    vps = level_viewpoints(0)
     y, x, s = vps[0]
     assert (y, x, s) == (0.0, 0.0, 1.0)
 

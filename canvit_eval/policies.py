@@ -1,11 +1,10 @@
 """Viewing policies for CanViT evaluation.
 
-Convention: centers are (y, x) in [-1, 1]. Scales are in (0, 1].
-y grows downward (row index), x grows rightward (column index).
-Matches canvit.viewpoint.
+Static policies (C2F, F2C, random, etc.) are viewpoint generators from canvit.policies.
+This module wraps them into the Policy protocol and adds interactive policies
+(entropy-guided C2F) that depend on model state.
 
-All policies implement the Policy protocol from episode.py:
-    step(t: int, state: RecurrentState) -> Viewpoint
+Convention: centers are (y, x) in [-1, 1]. Scales in (0, 1].
 """
 
 import logging
@@ -14,7 +13,13 @@ from typing import Literal
 
 import torch
 from canvit import RecurrentState, Viewpoint
-from canvit.policies import coarse_to_fine_viewpoints, random_viewpoints
+from canvit.policies import (
+    coarse_to_fine_viewpoints,
+    constant_full_scene,
+    fine_to_coarse_viewpoints,
+    level_viewpoints,
+    random_viewpoints,
+)
 from torch import Tensor
 
 log = logging.getLogger(__name__)
@@ -43,47 +48,6 @@ class StaticPolicy:
 
     def step(self, t: int, state: RecurrentState) -> Viewpoint:
         return self._viewpoints[t]
-
-
-# ── Fine-to-coarse ───────────────────────────────────────────────────────────
-
-
-def _level_viewpoints(level: int) -> list[tuple[float, float, float]]:
-    """(y, x, scale) for all crops at a C2F level. Level 0 = full scene."""
-    n = 2**level
-    scale = 1.0 / n
-    return [
-        ((2 * row + 1) * scale - 1.0, (2 * col + 1) * scale - 1.0, scale)
-        for row in range(n) for col in range(n)
-    ]
-
-
-def fine_to_coarse_viewpoints(
-    batch_size: int, device: torch.device, n_viewpoints: int,
-) -> list[Viewpoint]:
-    """Reversed C2F: finest scale first, then coarser."""
-    levels: list[list[tuple[float, float, float]]] = []
-    total = 0
-    level = 0
-    while total < n_viewpoints:
-        lvl_vps = _level_viewpoints(level)
-        levels.append(lvl_vps)
-        total += len(lvl_vps)
-        level += 1
-    levels.reverse()
-
-    result: list[Viewpoint] = []
-    for level_vps in levels:
-        level_t = torch.tensor(level_vps, device=device, dtype=torch.float32)
-        n = len(level_vps)
-        perms = (torch.zeros(batch_size, 1, dtype=torch.long, device=device) if n == 1
-                 else torch.stack([torch.randperm(n, device=device) for _ in range(batch_size)]))
-        for i in range(n):
-            if len(result) >= n_viewpoints:
-                return result
-            idx = perms[:, i]
-            result.append(Viewpoint(centers=level_t[idx, :2], scales=level_t[idx, 2]))
-    return result[:n_viewpoints]
 
 
 # ── Entropy-guided C2F ───────────────────────────────────────────────────────
@@ -123,8 +87,8 @@ class EntropyGuidedC2F:
         self._probe = probe
         self._get_spatial_fn = get_spatial_fn
 
-        self._levels = [_level_viewpoints(lvl) for lvl in range(3)]
-        self._level_starts = []
+        self._levels = [level_viewpoints(lvl) for lvl in range(3)]
+        self._level_starts: list[int] = []
         t = 0
         for lvl in self._levels:
             self._level_starts.append(t)
@@ -205,7 +169,7 @@ def make_policy(
             batch_size, device, n_viewpoints, min_scale=min_scale, max_scale=max_scale, start_with_full_scene=False,
         ))
     if name == "constant_full_scene":
-        return StaticPolicy(name, [Viewpoint.full_scene(batch_size=batch_size, device=device)] * n_viewpoints)
+        return StaticPolicy(name, constant_full_scene(batch_size, device, n_viewpoints))
     if name == "entropy_coarse_to_fine":
         assert probe is not None and get_spatial_fn is not None, \
             "entropy_coarse_to_fine requires probe= and get_spatial_fn="
