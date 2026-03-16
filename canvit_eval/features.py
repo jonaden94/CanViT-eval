@@ -56,13 +56,21 @@ def dinov3_extractor(
     teacher: DINOv3Teacher,
     *,
     eval_resolution: int,
+    patch_size: int = 16,
 ) -> "Callable[[Tensor], list[Tensor]]":
-    """Create a DINOv3 feature extractor (single passive forward pass)."""
+    """Create a DINOv3 feature extractor (single passive forward pass).
+
+    eval_resolution: the resolution the probe was trained at (e.g. 128px, 512px).
+    The teacher is run at this resolution, NOT at the dataset scene_size.
+    """
+    grid = eval_resolution // patch_size
 
     def extract(images: Tensor) -> list[Tensor]:
+        B = images.shape[0]
         resized = F.interpolate(images, size=(eval_resolution, eval_resolution),
                                 mode="bilinear", align_corners=False)
-        feats = teacher.forward_norm_features(resized).patches  # [B, H, W, D]
+        feats = teacher.forward_norm_features(resized).patches  # [B, N, D] (flat)
+        feats = feats.view(B, grid, grid, -1)  # [B, G, G, D]
         return [feats]
 
     return extract
