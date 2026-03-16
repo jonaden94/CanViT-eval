@@ -1,27 +1,26 @@
-"""Batch evaluation: reproduce ALL paper ADE20K results.
+"""Batch evaluation: reproduce ALL paper results in one command.
 
-Each result file gets a UTC timestamp in its filename, so runs from different
-days/code versions coexist safely. The export script groups by
-(policy, scene, grid), treating each file as one independent run.
+Covers: ADE20K segmentation, IN1K classification, ablation reconstruction.
+Each result file includes a UTC timestamp in its filename.
 
 Usage:
-    # Sequential (crockett, single GPU):
-    ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 5
-
-    # Print commands for parallel SLURM submission:
-    ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 5 --dry-run
-
-    # Quick smoke test:
+    # All tasks, n=1 smoke test:
     ADE20K_ROOT=... uv run python -m canvit_eval.batch --n-runs 1
+
+    # ADE20K seg only:
+    ADE20K_ROOT=... uv run python -m canvit_eval.batch --tasks ade20k-seg --n-runs 5
+
+    # Print commands (for SLURM):
+    ADE20K_ROOT=... uv run python -m canvit_eval.batch --dry-run
 """
 
 import logging
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import get_args
+from typing import Literal, get_args
 
 import tyro
 
@@ -34,51 +33,76 @@ def _utc_timestamp() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
 
 
-# All policies from the PolicyName Literal — single source of truth.
+# ── ADE20K segmentation constants ─────────────────────────────────────
+
 ALL_POLICIES: list[str] = list(get_args(PolicyName))
-
-# Policies with no randomness (only need 1 run).
 DETERMINISTIC: set[str] = {"constant_full_scene"}
+ADE20K_RESOLUTIONS = [(512, 32, 32), (1024, 64, 8)]  # (scene_px, canvas_grid, batch_size)
 
-# (scene_px, canvas_grid, batch_size) — batch_size varies by VRAM needs.
-RESOLUTIONS = [(512, 32, 32), (1024, 64, 8)]
-
-# DINOv3 baseline probes.
 DINOV3_VARIANTS = ["dv3b", "dv3s"]
 DINOV3_RESOLUTIONS = [128, 144, 160, 192, 256, 384, 512]
 
 # CanViT single-glimpse probes (beating teacher table).
 CANVAS_GRIDS = [(512, 8), (512, 16), (512, 32), (1024, 64)]
 
+# ── IN1K classification constants ──────────────────────────────────────
+
+IN1K_POLICIES = ["coarse_to_fine", "fine_to_coarse", "full_then_random", "random"]
+
+# ── Ablation reconstruction constants ──────────────────────────────────
+# Source of truth for HF repo IDs: analysis/ablations/__init__.py in paper repo.
+# Duplicated here because canvit-eval shouldn't depend on the paper repo.
+# If ablation list changes (rare), update both.
+
+ABLATION_REPOS: dict[str, str] = {
+    "baseline":      "canvit/canvitb16-abl-baseline-2026-03-02",
+    "qkvo-dcan256":  "canvit/canvitb16-abl-qkvo-dcan256-2026-03-02",
+    "qkvo-dcan384":  "canvit/canvitb16-abl-qkvo-dcan384-2026-03-02",
+    "dcan256":       "canvit/canvitb16-abl-dcan256-2026-03-02",
+    "no-dense":      "canvit/canvitb16-abl-no-dense-2026-03-02",
+    "no-fiid-1riid": "canvit/canvitb16-abl-no-fiid-1riid-2026-03-02",
+    "no-fiid-2riid": "canvit/canvitb16-abl-no-fiid-2riid-2026-03-06",
+    "no-bptt":       "canvit/canvitb16-abl-no-bptt-2026-03-06",
+    "no-reads":      "canvit/canvitb16-abl-no-reads-2026-03-02",
+    "no-vpe":        "canvit/canvitb16-abl-no-vpe-2026-03-03",
+    "rw-stride6":    "canvit/canvitb16-abl-rw-stride6-2026-03-03",
+    "vit-s":         "canvit/canvitb16-abl-vit-s-2026-03-03",
+}
+
 
 def _probe_repo(scene: int, grid: int) -> str:
     return f"canvit/probe-ade20k-40k-s{scene}-c{grid}-in21k"
 
 
+# ── Job definition ─────────────────────────────────────────────────────
+
+TaskName = Literal["ade20k-seg", "in1k-clf", "recon"]
+ALL_TASKS: list[TaskName] = list(get_args(TaskName))
+
+
 @dataclass
 class EvalJob:
     """One evaluation to run."""
+    task: TaskName
     args: list[str]
     output: Path
 
 
-def build_eval_matrix(out_dir: Path, n_runs: int, n_timesteps: int) -> list[EvalJob]:
-    """Generate the full list of eval jobs. Pure function, no side effects.
+# ── Matrix builders ────────────────────────────────────────────────────
 
-    Each output filename includes a UTC timestamp so runs from different
-    sessions coexist. No skip-if-exists logic needed.
-    """
+
+def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> list[EvalJob]:
     jobs: list[EvalJob] = []
-    ts = _utc_timestamp()
 
     # CanViT multi-timestep policy evals
-    for scene, grid, bs in RESOLUTIONS:
+    for scene, grid, bs in ADE20K_RESOLUTIONS:
         probe = _probe_repo(scene, grid)
         for policy in ALL_POLICIES:
             n = 1 if policy in DETERMINISTIC else n_runs
             for run in range(n):
                 out = out_dir / f"{policy}_s{scene}_c{grid}_{ts}_r{run}.pt"
                 jobs.append(EvalJob(
+                    task="ade20k-seg",
                     args=["ade20k-seg", "--probe-repo", probe,
                           "--episode.policy", policy, "--episode.n-timesteps", str(n_timesteps),
                           "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
@@ -86,21 +110,23 @@ def build_eval_matrix(out_dir: Path, n_runs: int, n_timesteps: int) -> list[Eval
                     output=out,
                 ))
 
-    # DINOv3 baseline probes (deterministic — 1 run each)
+    # DINOv3 baseline probes (deterministic)
     for v in DINOV3_VARIANTS:
         for res in DINOV3_RESOLUTIONS:
             out = out_dir / f"{v}_{res}px_{ts}.pt"
             jobs.append(EvalJob(
+                task="ade20k-seg",
                 args=["ade20k-seg", "--model", "dinov3",
                       "--probe-repo", f"canvit/probe-ade20k-40k-{v}-{res}px",
                       "--eval-resolution", str(res), "--output", str(out)],
                 output=out,
             ))
 
-    # CanViT single-glimpse probes (deterministic — 1 run each)
+    # CanViT single-glimpse probes (deterministic — full-scene viewpoint)
     for scene, grid in CANVAS_GRIDS:
         out = out_dir / f"canvit_s{scene}_c{grid}_{ts}.pt"
         jobs.append(EvalJob(
+            task="ade20k-seg",
             args=["ade20k-seg", "--probe-repo", _probe_repo(scene, grid),
                   "--episode.policy", "coarse_to_fine", "--episode.n-timesteps", "1",
                   "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
@@ -111,18 +137,75 @@ def build_eval_matrix(out_dir: Path, n_runs: int, n_timesteps: int) -> list[Eval
     return jobs
 
 
+def _in1k_clf_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> list[EvalJob]:
+    jobs: list[EvalJob] = []
+    for policy in IN1K_POLICIES:
+        for run in range(n_runs):
+            out = out_dir / f"in1k_{policy}_{ts}_r{run}.pt"
+            jobs.append(EvalJob(
+                task="in1k-clf",
+                args=["in1k-clf",
+                      "--episode.policy", policy, "--episode.n-timesteps", str(n_timesteps),
+                      "--output", str(out)],
+                output=out,
+            ))
+    return jobs
+
+
+def _recon_jobs(out_dir: Path, n_runs: int, ts: str) -> list[EvalJob]:
+    jobs: list[EvalJob] = []
+    for slug, repo in ABLATION_REPOS.items():
+        for run in range(n_runs):
+            out = out_dir / f"recon_{slug}_{ts}_r{run}.pt"
+            jobs.append(EvalJob(
+                task="recon",
+                args=["reconstruction", "--model-repo", repo, "--output", str(out)],
+                output=out,
+            ))
+    return jobs
+
+
+def build_eval_matrix(
+    out_dir: Path,
+    n_runs: int,
+    n_timesteps: int,
+    tasks: list[TaskName],
+) -> list[EvalJob]:
+    """Generate the full list of eval jobs. Pure function, no side effects."""
+    ts = _utc_timestamp()
+    jobs: list[EvalJob] = []
+    if "ade20k-seg" in tasks:
+        jobs.extend(_ade20k_seg_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts))
+    if "in1k-clf" in tasks:
+        jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts))
+    if "recon" in tasks:
+        jobs.extend(_recon_jobs(out_dir, n_runs=n_runs, ts=ts))
+    return jobs
+
+
+# ── CLI ────────────────────────────────────────────────────────────────
+
+
 @dataclass
 class Args:
     out_dir: Path = Path("results")
     n_runs: int = 5
     n_timesteps: int = 21
+    tasks: list[TaskName] = field(default_factory=lambda: list(ALL_TASKS))
     dry_run: bool = False
 
 
 def main(args: Args) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    jobs = build_eval_matrix(args.out_dir, args.n_runs, args.n_timesteps)
-    log.info("%d total eval jobs", len(jobs))
+    jobs = build_eval_matrix(
+        out_dir=args.out_dir, n_runs=args.n_runs,
+        n_timesteps=args.n_timesteps, tasks=args.tasks,
+    )
+    by_task = {}
+    for j in jobs:
+        by_task.setdefault(j.task, 0)
+        by_task[j.task] += 1
+    log.info("%d total eval jobs: %s", len(jobs), ", ".join(f"{k}={v}" for k, v in by_task.items()))
 
     if args.dry_run:
         for job in jobs:
@@ -133,7 +216,7 @@ def main(args: Args) -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     done = 0
     for job in jobs:
-        log.info("RUN  %s", job.output.name)
+        log.info("RUN  [%d/%d] %s", done + 1, len(jobs), job.output.name)
         subprocess.run([sys.executable, "-m", "canvit_eval"] + job.args, check=True)
         done += 1
 

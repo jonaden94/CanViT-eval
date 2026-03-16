@@ -3,7 +3,10 @@
 import re
 from pathlib import Path
 
-from canvit_eval.batch import ALL_POLICIES, DETERMINISTIC, build_eval_matrix
+from canvit_eval.batch import (
+    ABLATION_REPOS, ALL_POLICIES, ALL_TASKS, DETERMINISTIC,
+    build_eval_matrix,
+)
 
 _TS_RE = re.compile(r"\d{8}T\d{6}Z")
 
@@ -20,36 +23,45 @@ def test_deterministic_subset():
     assert DETERMINISTIC.issubset(set(ALL_POLICIES))
 
 
-def test_build_eval_matrix_n1():
-    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21)
-    # 6 policies × 2 res × 1 run = 12 CanViT multi-T
-    # + 14 DINOv3 (7 ViT-B + 7 ViT-S)
-    # + 4 single-glimpse probes
+def test_ade20k_seg_n1():
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["ade20k-seg"])
+    # 6 policies × 2 res = 12 CanViT + 14 DINOv3 + 4 single-glimpse = 30
     assert len(jobs) == 30
+    assert all(j.task == "ade20k-seg" for j in jobs)
 
 
-def test_build_eval_matrix_n5():
-    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=5, n_timesteps=21)
-    # 5 stochastic policies × 2 res × 5 runs = 50
-    # + 1 deterministic × 2 res × 1 run = 2
-    # + 14 DINOv3 + 4 single-glimpse = 18
-    assert len(jobs) == 70  # 50 + 2 + 14 + 4
+def test_in1k_clf_n1():
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["in1k-clf"])
+    # 4 policies × 1 run = 4
+    assert len(jobs) == 4
+    assert all(j.task == "in1k-clf" for j in jobs)
+
+
+def test_recon_n1():
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["recon"])
+    assert len(jobs) == len(ABLATION_REPOS)
+    assert all(j.task == "recon" for j in jobs)
+
+
+def test_all_tasks_combined():
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=ALL_TASKS)
+    assert len(jobs) == 30 + 4 + len(ABLATION_REPOS)
 
 
 def test_output_paths_unique():
-    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=5, n_timesteps=21)
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=5, n_timesteps=21, tasks=ALL_TASKS)
     paths = [j.output for j in jobs]
     assert len(paths) == len(set(paths)), "Duplicate output paths!"
 
 
 def test_all_outputs_under_out_dir():
     out_dir = Path("/tmp/test_results")
-    jobs = build_eval_matrix(out_dir, n_runs=1, n_timesteps=21)
+    jobs = build_eval_matrix(out_dir, n_runs=1, n_timesteps=21, tasks=ALL_TASKS)
     for j in jobs:
         assert j.output.parent == out_dir
 
 
 def test_filenames_contain_timestamp():
-    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21)
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=ALL_TASKS)
     for j in jobs:
         assert _TS_RE.search(j.output.name), f"No timestamp in {j.output.name}"
