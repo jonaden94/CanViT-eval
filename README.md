@@ -50,8 +50,6 @@ ADE20K_ROOT=/path/to/ADE20k uv run python -m canvit_eval reconstruction \
 ADE20K_ROOT=/fake uv run pytest tests/ -v --cov=canvit_eval --cov-report=term-missing
 ```
 
-15 tests, 92% coverage on core. Integration tests with real HF model + probe.
-
 ## Related repos
 
 | Repo | Role |
