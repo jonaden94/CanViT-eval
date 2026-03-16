@@ -11,7 +11,7 @@ from safetensors.torch import load_file
 from torch import nn
 from torch.utils.data import DataLoader
 
-from canvit_eval.config import EpisodeConfig
+from canvit_eval.config import EpisodeConfig, imagenet_val_dir
 from canvit_eval.datasets.imagenet import make_in1k_dataset
 from canvit_eval.runner import eval_batches, load_model
 from canvit_eval.utils import collect_metadata
@@ -31,7 +31,7 @@ def _load_probe(repo: str, device: torch.device) -> nn.Linear:
 class Config:
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(canvas_grid=32))
     probe_repo: str = "yberreby/dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe"
-    val_dir: Path = Path("/datashare/imagenet/ILSVRC2012/val")
+    val_dir: Path = field(default_factory=imagenet_val_dir)
     output: Path = Path("results/in1k_clf.pt")
     device: str = "cuda"
     batch_size: int = 64

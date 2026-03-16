@@ -24,6 +24,14 @@ def ade20k_root() -> Path:
     return Path(v)
 
 
+def imagenet_val_dir() -> Path:
+    """ImageNet-1K validation dir from IMAGENET_VAL env var. Must contain class subdirs."""
+    v = os.environ.get("IMAGENET_VAL")
+    if v is None:
+        raise RuntimeError("IMAGENET_VAL env var not set. Should point to the ImageNet val dir containing class subdirs.")
+    return Path(v)
+
+
 @dataclass(frozen=True)
 class EpisodeConfig:
     """How to run CanViT episodes. Shared by all CanViT-based tasks."""

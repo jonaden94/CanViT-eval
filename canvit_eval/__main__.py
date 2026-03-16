@@ -76,17 +76,19 @@ class IN1KClfCmd:
 
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(canvas_grid=32))
     probe_repo: str = "yberreby/dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe"
-    val_dir: Path = Path("/datashare/imagenet/ILSVRC2012/val")
+    val_dir: Path | None = None
     output: Path = Path("results/in1k_clf.pt")
     device: str = "cuda"
     batch_size: int = 64
     num_workers: int = 8
 
     def run(self) -> None:
+        from canvit_eval.config import imagenet_val_dir
         from canvit_eval.tasks.in1k_clf import Config, evaluate
+        val = self.val_dir or imagenet_val_dir()
         cfg = Config(
             episode=self.episode, probe_repo=self.probe_repo,
-            val_dir=self.val_dir, output=self.output,
+            val_dir=val, output=self.output,
             device=self.device, batch_size=self.batch_size, num_workers=self.num_workers,
         )
         evaluate(cfg)
