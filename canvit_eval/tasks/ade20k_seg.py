@@ -82,7 +82,7 @@ def run(
 
     probe = SegmentationProbe.from_pretrained(cfg.probe_repo).to(device).eval()
     img_tf, mask_tf = make_val_transforms(cfg.scene_size, cfg.resize_mode)
-    dataset = ADE20kDataset(cfg.ade20k_root, "validation", img_tf, mask_tf)
+    dataset = ADE20kDataset(root=cfg.ade20k_root, split="validation", img_transform=img_tf, mask_transform=mask_tf)
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,
                         num_workers=cfg.num_workers, pin_memory=True)
 
