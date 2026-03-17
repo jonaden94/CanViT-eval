@@ -1,9 +1,13 @@
 """Tests for viewing policies."""
 
+import pytest
 import torch
 from canvit.policies import level_viewpoints
+
 from canvit_eval.policies import (
-    PolicyName, StaticPolicy, fine_to_coarse_viewpoints,
+    PolicyName,
+    StaticPolicy,
+    fine_to_coarse_viewpoints,
     make_policy,
 )
 
@@ -51,8 +55,5 @@ def test_all_policies_produce_correct_count() -> None:
 
 
 def test_unknown_policy_raises() -> None:
-    try:
+    with pytest.raises(ValueError):
         make_policy("nonexistent", batch_size=1, device=torch.device("cpu"), n_viewpoints=1)  # type: ignore[arg-type]
-        assert False, "Should have raised ValueError"
-    except ValueError:
-        pass
