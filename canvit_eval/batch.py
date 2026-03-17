@@ -226,14 +226,9 @@ def main(args: Args) -> None:
         return
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    skipped = 0
     done = 0
     failed = 0
     for i, job in enumerate(jobs):
-        if job.output.exists() and job.output.stat().st_size > 0:
-            skipped += 1
-            log.info("SKIP [%d/%d] %s (already exists)", i + 1, len(jobs), job.output.name)
-            continue
         log.info("RUN  [%d/%d] %s", i + 1, len(jobs), job.output.name)
         result = subprocess.run([sys.executable, "-m", "canvit_eval"] + job.args)
         if result.returncode != 0:
@@ -242,7 +237,7 @@ def main(args: Args) -> None:
         else:
             done += 1
 
-    log.info("DONE: %d completed, %d skipped, %d failed (of %d total)", done, skipped, failed, len(jobs))
+    log.info("DONE: %d completed, %d failed (of %d total)", done, failed, len(jobs))
     if failed:
         log.error("FAILED JOBS: %d — check logs above for details", failed)
 
