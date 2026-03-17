@@ -226,13 +226,25 @@ def main(args: Args) -> None:
         return
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    skipped = 0
     done = 0
-    for job in jobs:
-        log.info("RUN  [%d/%d] %s", done + 1, len(jobs), job.output.name)
-        subprocess.run([sys.executable, "-m", "canvit_eval"] + job.args, check=True)
-        done += 1
+    failed = 0
+    for i, job in enumerate(jobs):
+        if job.output.exists() and job.output.stat().st_size > 0:
+            skipped += 1
+            log.info("SKIP [%d/%d] %s (already exists)", i + 1, len(jobs), job.output.name)
+            continue
+        log.info("RUN  [%d/%d] %s", i + 1, len(jobs), job.output.name)
+        result = subprocess.run([sys.executable, "-m", "canvit_eval"] + job.args)
+        if result.returncode != 0:
+            log.error("FAIL [%d/%d] %s (exit code %d)", i + 1, len(jobs), job.output.name, result.returncode)
+            failed += 1
+        else:
+            done += 1
 
-    log.info("DONE: %d/%d jobs completed", done, len(jobs))
+    log.info("DONE: %d completed, %d skipped, %d failed (of %d total)", done, skipped, failed, len(jobs))
+    if failed:
+        log.error("FAILED JOBS: %d — check logs above for details", failed)
 
 
 if __name__ == "__main__":
