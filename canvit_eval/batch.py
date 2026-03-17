@@ -48,8 +48,11 @@ DINOV3_VARIANTS: dict[str, str] = {
 }
 DINOV3_RESOLUTIONS = [128, 144, 160, 192, 256, 384, 512]
 
-# CanViT single-glimpse probes (beating teacher table).
+# CanViT single-glimpse probes (passive-vision comparison table).
 CANVAS_GRIDS = [(512, 8), (512, 16), (512, 32), (1024, 64)]
+
+# batch_size lookup by scene resolution (from ADE20K_RESOLUTIONS)
+_BATCH_SIZE_BY_SCENE: dict[int, int] = {s: bs for s, _, bs in ADE20K_RESOLUTIONS}
 
 # ── IN1K classification constants ──────────────────────────────────────
 # IN1K_POLICIES imported from canvit_eval.policies (single source of truth).
@@ -130,13 +133,14 @@ def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> l
 
     # CanViT single-glimpse probes (deterministic — full-scene viewpoint)
     for scene, grid in CANVAS_GRIDS:
+        bs = _BATCH_SIZE_BY_SCENE.get(scene, 32)
         out = d / f"canvit_s{scene}_c{grid}_{ts}.pt"
         jobs.append(EvalJob(
             task="ade20k-seg",
             args=["ade20k-seg", "--probe-repo", _probe_repo(scene, grid),
                   "--episode.policy", "coarse_to_fine", "--episode.n-timesteps", "1",
                   "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
-                  "--output", str(out)],
+                  "--batch-size", str(bs), "--output", str(out)],
             output=out,
         ))
 
