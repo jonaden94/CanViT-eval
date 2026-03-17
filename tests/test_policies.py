@@ -5,7 +5,6 @@ import torch
 from canvit.policies import level_viewpoints
 
 from canvit_eval.policies import (
-    PolicyName,
     StaticPolicy,
     fine_to_coarse_viewpoints,
     make_policy,
