@@ -14,7 +14,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from canvit_eval.config import EpisodeConfig, TEACHER_REPO
+from canvit_eval.config import TEACHER_REPO, EpisodeConfig
 from canvit_eval.runner import eval_batches, load_model
 from canvit_eval.utils import collect_metadata
 

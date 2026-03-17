@@ -13,13 +13,13 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from canvit_probes import SegmentationProbe
+from canvit_probes.datasets.ade20k import IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms
+from canvit_probes.metrics import IoUAccumulator
 from torch import Tensor
 from torch.utils.data import DataLoader
 
 from canvit_eval.config import ade20k_root
 from canvit_eval.evaluate import evaluate
-from canvit_probes.datasets.ade20k import IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms
-from canvit_probes.metrics import IoUAccumulator
 from canvit_eval.utils import collect_metadata
 
 log = logging.getLogger(__name__)
