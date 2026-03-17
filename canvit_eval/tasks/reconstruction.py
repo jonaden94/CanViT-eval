@@ -84,8 +84,8 @@ def evaluate(cfg: Config) -> Path:
         t_patches, t_cls = cached["patches"], cached["cls"]
     else:
         plist, clist = [], []
-        for imgs in tqdm(loader, desc="Teacher"):
-            feats = teacher.forward_norm_features(imgs.to(device))
+        for batch in tqdm(loader, desc="Teacher"):
+            feats = teacher.forward_norm_features(batch[0].to(device))
             plist.append(feats.patches.cpu())
             clist.append(feats.cls.cpu())
         t_patches, t_cls = torch.cat(plist), torch.cat(clist)
