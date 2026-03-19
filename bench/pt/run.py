@@ -206,7 +206,7 @@ def _build_dinov3(args: Args, device: torch.device) -> Callable[[], None]:
     if args.compiled:
         log.info("  torch.compile...")
         t0 = time.perf_counter()
-        teacher.model = torch.compile(teacher.model)
+        teacher.model = torch.compile(teacher.model)  # type: ignore[assignment]
         log.info("  registered in %.1fs", time.perf_counter() - t0)
 
     x = torch.randn(args.batch_size, 3, args.scene_px, args.scene_px,

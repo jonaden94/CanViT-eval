@@ -8,7 +8,7 @@
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Union
 
 import torch
 import tyro
@@ -120,11 +120,11 @@ class ReconCmd:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    cmd = tyro.cli(
-        Annotated[ADE20kSegCmd, tyro.conf.subcommand("ade20k-seg")]
-        | Annotated[IN1KClfCmd, tyro.conf.subcommand("in1k-clf")]
-        | Annotated[ReconCmd, tyro.conf.subcommand("reconstruction")]
-    )
+    cmd = tyro.cli(Union[  # type: ignore[reportCallIssue]  # basedpyright can't resolve Union as TypeForm
+        Annotated[ADE20kSegCmd, tyro.conf.subcommand("ade20k-seg")],
+        Annotated[IN1KClfCmd, tyro.conf.subcommand("in1k-clf")],
+        Annotated[ReconCmd, tyro.conf.subcommand("reconstruction")],
+    ])
     cmd.run()
 
 

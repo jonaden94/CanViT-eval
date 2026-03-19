@@ -11,9 +11,15 @@ processed recurrently through a CanViT model with a given viewing policy.
 from dataclasses import dataclass
 from typing import Protocol
 
-import torch
 from canvit import CanViTOutput, RecurrentState, Viewpoint, sample_at_viewpoint
 from torch import Tensor
+
+
+class CanViTModel(Protocol):
+    """Structural type for CanViT models used in the episode loop."""
+
+    def init_state(self, *, batch_size: int, canvas_grid_size: int) -> RecurrentState: ...
+    def __call__(self, *, glimpse: Tensor, state: RecurrentState, viewpoint: Viewpoint) -> CanViTOutput: ...
 
 
 class Policy(Protocol):
@@ -34,7 +40,7 @@ class EpisodeStep:
 
 def run_episode(
     *,
-    model: torch.nn.Module,
+    model: CanViTModel,
     images: Tensor,
     policy: Policy,
     n_timesteps: int,

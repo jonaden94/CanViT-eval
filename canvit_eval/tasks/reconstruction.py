@@ -2,6 +2,7 @@
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,7 +24,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
 class FlatImageDataset(Dataset):
-    def __init__(self, root: Path, transform: object) -> None:
+    def __init__(self, root: Path, transform: Callable[..., Tensor]) -> None:
         self.paths = sorted(p for p in root.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS)
         assert len(self.paths) > 0, f"No images in {root}"
         self.transform = transform

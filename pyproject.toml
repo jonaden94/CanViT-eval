@@ -27,6 +27,7 @@ packages = ["canvit_eval"]
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.37.2",
     "pytest>=9.0.2",
     "pypatree>=0.4.0",
     "ruff>=0.14.14",
@@ -35,6 +36,9 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
 
 [tool.ruff]
 line-length = 120
