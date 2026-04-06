@@ -11,7 +11,7 @@ processed recurrently through a CanViT model with a given viewing policy.
 from dataclasses import dataclass
 from typing import Protocol
 
-from canvit import CanViTOutput, RecurrentState, Viewpoint, sample_at_viewpoint
+from canvit_pytorch import CanViTOutput, RecurrentState, Viewpoint, sample_at_viewpoint
 from torch import Tensor
 
 
