@@ -1,7 +1,7 @@
 """Batch evaluation: reproduce ALL paper results in one command.
 
 Covers: ADE20K segmentation, IN1K classification, ablation reconstruction.
-Results go to task-specific subdirs: results/ade20k_seg/, results/in1k_clf/, results/recon/.
+Results go to task-specific subdirs: results/ade20k_seg/, results/in1k_clf_{frozen,finetuned}/, results/recon/.
 Each file includes a UTC timestamp in its filename.
 
 Usage:
@@ -190,7 +190,8 @@ def build_eval_matrix(
     if "ade20k-seg" in tasks:
         jobs.extend(_ade20k_seg_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts))
     if "in1k-clf" in tasks:
-        jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts))
+        jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts, mode="frozen"))
+        jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts, mode="finetuned"))
     if "recon" in tasks:
         jobs.extend(_recon_jobs(out_dir, n_runs=n_runs, ts=ts))
     return jobs
