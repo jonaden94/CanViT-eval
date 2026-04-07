@@ -70,7 +70,7 @@ def evaluate(cfg: Config) -> Path:
 
     clf = _load_classifier(cfg, device)
 
-    img_size = canvas_grid * clf.backbone.backbone.patch_size_px
+    img_size = canvas_grid * clf.canvit.backbone.patch_size_px
     dataset = make_in1k_dataset(cfg.val_dir, img_size)
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,
                         num_workers=cfg.num_workers, pin_memory=True)
@@ -82,7 +82,7 @@ def evaluate(cfg: Config) -> Path:
     t_start = time.monotonic()
     processed = 0
 
-    for br in eval_batches(model=clf.backbone, loader=loader, episode_cfg=cfg.episode,
+    for br in eval_batches(model=clf.canvit, loader=loader, episode_cfg=cfg.episode,
                            canvas_grid=canvas_grid, device=device, amp=cfg.amp):
         _, labels = br.batch
         labels_gpu = labels.to(device, non_blocking=True)
