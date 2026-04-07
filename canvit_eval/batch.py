@@ -147,15 +147,16 @@ def _ade20k_seg_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> l
     return jobs
 
 
-def _in1k_clf_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str) -> list[EvalJob]:
+def _in1k_clf_jobs(out_dir: Path, n_runs: int, n_timesteps: int, ts: str, mode: str = "frozen") -> list[EvalJob]:
     jobs: list[EvalJob] = []
-    d = out_dir / "in1k_clf"
+    subdir = f"in1k_clf_{mode}"
+    d = out_dir / subdir
     for policy in IN1K_POLICIES:
         for run in range(n_runs):
             out = d / f"in1k_{policy}_{ts}_r{run}.pt"
             jobs.append(EvalJob(
                 task="in1k-clf",
-                args=["in1k-clf",
+                args=["in1k-clf", "--mode", mode,
                       "--episode.policy", policy, "--episode.n-timesteps", str(n_timesteps),
                       "--output", str(out)],
                 output=out,

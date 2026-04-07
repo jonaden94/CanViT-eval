@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from canvit_eval.config import EpisodeConfig
-from canvit_eval.episode import EpisodeStep, run_episode
+from canvit_eval.episode import CanViTModel, EpisodeStep, run_episode
 from canvit_eval.policies import make_policy
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ def load_model(model_repo: str, device: torch.device) -> CanViTForPretrainingHFH
 
 def eval_batches(
     *,
-    model: CanViTForPretrainingHFHub,
+    model: CanViTModel,
     loader: DataLoader,
     episode_cfg: EpisodeConfig,
     canvas_grid: int,

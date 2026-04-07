@@ -75,6 +75,7 @@ class ADE20kSegCmd:
 class IN1KClfCmd:
     """ImageNet-1K classification."""
 
+    mode: Literal["finetuned", "frozen"] = "finetuned"
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(canvas_grid=32))
     probe_repo: str = "yberreby/dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe"
     val_dir: Path | None = None
@@ -88,7 +89,7 @@ class IN1KClfCmd:
         from canvit_eval.tasks.in1k_clf import Config, evaluate
         val = self.val_dir or imagenet_val_dir()
         cfg = Config(
-            episode=self.episode, probe_repo=self.probe_repo,
+            mode=self.mode, episode=self.episode, probe_repo=self.probe_repo,
             val_dir=val, output=self.output,
             device=self.device, batch_size=self.batch_size, num_workers=self.num_workers,
         )
