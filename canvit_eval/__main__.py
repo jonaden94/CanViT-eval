@@ -59,7 +59,7 @@ class ADE20kSegCmd:
             meta = {"model_repo": self.episode.model_repo, "canvas_grid": cg,
                     "policy": self.episode.policy, "n_timesteps": self.episode.n_timesteps}
         else:
-            from canvit_utils.teacher import load_teacher
+            from canvit_pytorch.teacher import load_teacher
             teacher = load_teacher(self.teacher_repo, device)
             extract = dinov3_extractor(teacher, eval_resolution=self.eval_resolution)
             meta = {"model": self.teacher_repo, "eval_resolution": self.eval_resolution}

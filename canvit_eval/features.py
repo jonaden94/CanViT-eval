@@ -9,7 +9,7 @@ from collections.abc import Callable
 import torch
 import torch.nn.functional as F
 from canvit_pytorch.model.pretraining.hub import CanViTForPretrainingHFHub
-from canvit_utils.teacher import DINOv3Teacher
+from canvit_pytorch.teacher import DINOv3Teacher
 from torch import Tensor
 
 from canvit_eval.episode import run_episode

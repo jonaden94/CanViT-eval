@@ -8,8 +8,8 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from canvit_utils.teacher import load_teacher
-from canvit_utils.transforms import preprocess
+from canvit_pytorch.teacher import load_teacher
+from canvit_pytorch.preprocess import preprocess
 from PIL import Image
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset

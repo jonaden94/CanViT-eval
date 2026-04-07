@@ -6,7 +6,7 @@ This matches the manuscript methodology (evaluation_details.typ).
 
 from pathlib import Path
 
-from canvit_utils.transforms import preprocess
+from canvit_pytorch.preprocess import preprocess
 from torchvision.datasets import ImageFolder
 
 

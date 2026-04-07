@@ -40,7 +40,7 @@ import tyro
 from canvit_pytorch.backbone import create_backbone
 from canvit_pytorch.model.base import CanViT, CanViTConfig
 from canvit_pytorch.viewpoint import Viewpoint, sample_at_viewpoint
-from canvit_utils.teacher import load_teacher
+from canvit_pytorch.teacher import load_teacher
 
 logging.basicConfig(
     level=logging.INFO,
