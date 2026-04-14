@@ -4,16 +4,17 @@
 # Runs CPU benchmarks first (no GPU conflict), then waits for any running
 # eval batch to finish before starting GPU benchmarks.
 #
-# Usage:
-#   cd ~/projects/canvit-eval-workspace/canvit-train
-#   nohup bash ~/projects/canvit-bench/CanViT-Toward-AVFMs/bench/pt/run_matrix.sh \
-#       > ~/projects/canvit-bench/bench.log 2>&1 &
+# Usage (from canvit-eval repo root):
+#   nohup bash bench/pt/run_matrix.sh > /tmp/canvit_bench.log 2>&1 &
 #
-# Results: ~/projects/canvit-bench/CanViT-Toward-AVFMs/bench/pt/results/*.jsonl
+# Override UV project location if not at default ($HOME/projects/canvit-eval):
+#   UV_PROJECT=/path/to/canvit-eval bash bench/pt/run_matrix.sh
+#
+# Results: bench/pt/results/*.jsonl (relative to canvit-eval repo root).
 
 set -euo pipefail
 
-UV_PROJECT="${UV_PROJECT:-$HOME/projects/canvit-eval-workspace/canvit-train}"
+UV_PROJECT="${UV_PROJECT:-$HOME/projects/canvit-eval}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUN="$SCRIPT_DIR/run.py"
 
