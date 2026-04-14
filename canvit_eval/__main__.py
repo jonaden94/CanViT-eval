@@ -42,11 +42,9 @@ class ADE20kSegCmd:
 
         device = torch.device(self.device)
 
-        # Load model + probe TOGETHER. For canvit: CanViTForSemanticSegmentation
-        # bundles the bare CanViT and its SegmentationProbe head. For dinov3:
-        # the teacher and the seg probe are independent objects (no fused class).
-        # Either way, we hand the same (extract, probe) pair to the
-        # model-agnostic eval pipeline downstream.
+        # The downstream eval is model-agnostic: it consumes (extract, probe).
+        # We construct both here per model type; canvit gets them paired via
+        # CanViTForSemanticSegmentation, dinov3 loads them independently.
         if self.model == "canvit":
             seg = CanViTForSemanticSegmentation.from_pretrained_with_probe(
                 pretrained_repo=self.episode.model_repo, probe_repo=self.probe_repo,

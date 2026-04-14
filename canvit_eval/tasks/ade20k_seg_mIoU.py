@@ -27,15 +27,12 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Config:
-    """ADE20K segmentation eval — model-agnostic.
+    """ADE20K segmentation eval config — model-agnostic (no probe or model fields).
 
-    The probe (SegmentationProbe) is now passed to :func:`run` directly
-    rather than loaded from a repo here. This lets the caller bundle it
-    with its model (e.g. ``CanViTForSemanticSegmentation`` exposes
-    ``seg.head`` — a SegmentationProbe — already paired with the right
-    backbone) instead of paying for a second HF download. The eval loop
-    itself remains model-agnostic: it just applies whatever probe it's
-    given to whatever features the extractor yields.
+    The probe is passed to :func:`run` directly so the caller can supply
+    one already paired with its model (e.g. ``seg.head`` from
+    :class:`CanViTForSemanticSegmentation`). The eval loop only knows
+    about features and a probe.
     """
 
     ade20k_root: Path = field(default_factory=ade20k_root)

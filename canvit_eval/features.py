@@ -33,14 +33,12 @@ def canvit_extractor(
 ) -> "Callable[[Tensor], list[Tensor]]":
     """Create a CanViT feature extractor (multi-timestep episode).
 
-    Accepts any :class:`CanViT` (bare base or any subclass). Only uses
-    ``model.parameters()``, ``model.get_spatial(...)``, and ``run_episode(model=model, ...)``,
-    all of which live on the base class. This lets callers pass either
-    a :class:`CanViTForPretrainingHFHub` (frozen pretrained backbone)
-    or a :attr:`CanViTForSemanticSegmentation.canvit` (the bare CanViT
-    sub-module of a fused seg model) without copies or wrappers.
+    ``model`` may be a bare :class:`CanViT` or any subclass —
+    :class:`CanViTForPretrainingHFHub` (a frozen pretrained CanViT) and
+    ``CanViTForSemanticSegmentation.canvit`` (the CanViT sub-module of a
+    seg model) both work.
 
-    If viewpoint_log is provided, appends per-batch viewpoint metadata
+    If ``viewpoint_log`` is provided, appends per-batch viewpoint metadata
     (first item in batch) for reproducibility.
     """
     device = next(model.parameters()).device
