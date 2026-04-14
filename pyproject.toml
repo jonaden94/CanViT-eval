@@ -44,6 +44,17 @@ typeCheckingMode = "standard"
 [tool.ruff]
 line-length = 120
 
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.uv.sources]
-canvit-pytorch = { git = "https://github.com/m2b3/CanViT-PyTorch.git" }
-canvit-probes = { git = "ssh://git@github.com/m2b3/CanViT-probes.git", branch = "main" }
+canvit-pytorch = { git = "https://github.com/m2b3/CanViT-PyTorch.git", branch = "add-semantic-segmentation" }
+canvit-probes = { git = "ssh://git@github.com/m2b3/CanViT-probes.git", branch = "finetune-ade20k" }
+# Pin cu128 wheels on Linux (crockett: CUDA 12.9, Nibi H100). On macOS, fall
+# back to default PyPI (CPU-only wheels) for local development. This mirrors
+# canvit-probes' pyproject — needed because cu128 torch is now a transitive
+# pin coming through canvit-probes.
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]

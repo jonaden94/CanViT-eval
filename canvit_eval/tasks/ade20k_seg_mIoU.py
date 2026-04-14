@@ -12,7 +12,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from canvit_probes import SegmentationProbe
+from canvit_pytorch.probes import SegmentationProbe
 from canvit_probes.datasets.ade20k import IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms
 from canvit_probes.metrics import mIoUAccumulator
 from torch import Tensor

@@ -12,6 +12,7 @@ from typing import Annotated, Literal, Union
 
 import torch
 import tyro
+from canvit_pytorch import CanViTForPretrainingHFHub, SegmentationProbe
 
 from canvit_eval.config import TEACHER_REPO, EpisodeConfig
 
@@ -42,13 +43,11 @@ class ADE20kSegCmd:
         device = torch.device(self.device)
 
         if self.model == "canvit":
-            from canvit_pytorch.model.pretraining.hub import CanViTForPretrainingHFHub
             m = CanViTForPretrainingHFHub.from_pretrained(self.episode.model_repo).to(device).eval()
             cg = self.episode.canvas_grid or self.scene_size // m.backbone.patch_size_px
             # Load probe for entropy policy
             probe_for_entropy = None
             if self.episode.policy == "entropy_coarse_to_fine":
-                from canvit_probes import SegmentationProbe
                 probe_for_entropy = SegmentationProbe.from_pretrained(self.probe_repo).to(device).eval()
             extract = canvit_extractor(
                 m, policy_name=self.episode.policy, n_timesteps=self.episode.n_timesteps,
