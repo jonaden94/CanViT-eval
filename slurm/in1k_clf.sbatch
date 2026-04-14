@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=canvit-in1k-clf
-#SBATCH --account=rrg-skrishna_gpu
+#SBATCH --account=def-skrishna_gpu
 #SBATCH --time=00:30:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=8
