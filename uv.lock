@@ -91,8 +91,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "canvit-probes", git = "ssh://git@github.com/m2b3/CanViT-probes.git?branch=finetune-ade20k" },
-    { name = "canvit-pytorch", git = "https://github.com/m2b3/CanViT-PyTorch.git?branch=add-semantic-segmentation" },
+    { name = "canvit-probes", git = "ssh://git@github.com/m2b3/CanViT-probes.git" },
+    { name = "canvit-pytorch", git = "https://github.com/m2b3/CanViT-PyTorch.git" },
     { name = "huggingface-hub", specifier = ">=0.20.0" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "safetensors", specifier = ">=0.4.0" },
@@ -117,7 +117,7 @@ dev = [
 [[package]]
 name = "canvit-probes"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/m2b3/CanViT-probes.git?branch=finetune-ade20k#b729a8547e29d3ba51800c7d7b890895912150b3" }
+source = { git = "ssh://git@github.com/m2b3/CanViT-probes.git#1a52f8d106d5c6dca6ebd0299c1433688baae818" }
 dependencies = [
     { name = "canvit-pytorch" },
     { name = "comet-ml" },
@@ -142,7 +142,7 @@ dependencies = [
 [[package]]
 name = "canvit-pytorch"
 version = "0.1.9"
-source = { git = "https://github.com/m2b3/CanViT-PyTorch.git?branch=add-semantic-segmentation#4284b4600d48510e3c763353d49642987fec465e" }
+source = { git = "https://github.com/m2b3/CanViT-PyTorch.git#d3a74efd316aa90293a28ece1867e63bf2fd58d6" }
 dependencies = [
     { name = "huggingface-hub" },
     { name = "numpy" },

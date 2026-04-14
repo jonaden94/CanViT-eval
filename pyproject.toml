@@ -50,8 +50,8 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-canvit-pytorch = { git = "https://github.com/m2b3/CanViT-PyTorch.git", branch = "add-semantic-segmentation" }
-canvit-probes = { git = "ssh://git@github.com/m2b3/CanViT-probes.git", branch = "finetune-ade20k" }
+canvit-pytorch = { git = "https://github.com/m2b3/CanViT-PyTorch.git" }
+canvit-probes = { git = "ssh://git@github.com/m2b3/CanViT-probes.git" }
 # Pin cu128 wheels on Linux (crockett: CUDA 12.9, Nibi H100). On macOS, fall
 # back to default PyPI (CPU-only wheels) for local development. This mirrors
 # canvit-probes' pyproject — needed because cu128 torch is now a transitive
