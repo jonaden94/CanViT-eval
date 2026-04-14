@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import torch
 import torch.nn.functional as F
-from canvit_pytorch.model.pretraining.hub import CanViTForPretrainingHFHub
+from canvit_pytorch import CanViT
 from canvit_pytorch.teacher import DINOv3Teacher
 from torch import Tensor
 
@@ -20,7 +20,7 @@ from canvit_eval.policies import PolicyName, make_policy
 
 
 def canvit_extractor(
-    model: CanViTForPretrainingHFHub,
+    model: CanViT,
     *,
     policy_name: PolicyName,
     n_timesteps: int,
@@ -32,6 +32,13 @@ def canvit_extractor(
     viewpoint_log: list[dict] | None = None,
 ) -> "Callable[[Tensor], list[Tensor]]":
     """Create a CanViT feature extractor (multi-timestep episode).
+
+    Accepts any :class:`CanViT` (bare base or any subclass). Only uses
+    ``model.parameters()``, ``model.get_spatial(...)``, and ``run_episode(model=model, ...)``,
+    all of which live on the base class. This lets callers pass either
+    a :class:`CanViTForPretrainingHFHub` (frozen pretrained backbone)
+    or a :attr:`CanViTForSemanticSegmentation.canvit` (the bare CanViT
+    sub-module of a fused seg model) without copies or wrappers.
 
     If viewpoint_log is provided, appends per-batch viewpoint metadata
     (first item in batch) for reproducibility.

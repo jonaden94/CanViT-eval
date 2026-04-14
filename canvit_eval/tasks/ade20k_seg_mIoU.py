@@ -27,9 +27,17 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Config:
-    """ADE20K segmentation eval — model-agnostic."""
+    """ADE20K segmentation eval — model-agnostic.
 
-    probe_repo: str
+    The probe (SegmentationProbe) is now passed to :func:`run` directly
+    rather than loaded from a repo here. This lets the caller bundle it
+    with its model (e.g. ``CanViTForSemanticSegmentation`` exposes
+    ``seg.head`` — a SegmentationProbe — already paired with the right
+    backbone) instead of paying for a second HF download. The eval loop
+    itself remains model-agnostic: it just applies whatever probe it's
+    given to whatever features the extractor yields.
+    """
+
     ade20k_root: Path = field(default_factory=ade20k_root)
     output: Path = Path("results/ade20k_seg.pt")
     scene_size: int = 512
@@ -70,17 +78,18 @@ class _mIoUMetric:
 def run(
     cfg: Config,
     extract_features: Callable[[Tensor], list[Tensor]],
+    probe: SegmentationProbe,
     *,
     metadata: dict | None = None,
 ) -> Path:
-    """Run ADE20K segmentation eval with ANY feature extractor.
+    """Run ADE20K segmentation eval with ANY feature extractor + probe.
 
     extract_features: [B, C, H, W] images → list of [B, G, G, D] per timestep.
+    probe: applied to each timestep's spatial features. Must already be
+        on ``cfg.device`` and in eval mode.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     device = torch.device(cfg.device)
-
-    probe = SegmentationProbe.from_pretrained(cfg.probe_repo).to(device).eval()
     img_tf, mask_tf = make_val_transforms(cfg.scene_size, cfg.resize_mode)
     dataset = ADE20kDataset(root=cfg.ade20k_root, split="validation", img_transform=img_tf, mask_transform=mask_tf)
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,

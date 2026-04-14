@@ -12,7 +12,7 @@ from typing import Annotated, Literal, Union
 
 import torch
 import tyro
-from canvit_pytorch import CanViTForPretrainingHFHub, SegmentationProbe
+from canvit_pytorch import CanViTForSemanticSegmentation, SegmentationProbe
 
 from canvit_eval.config import TEACHER_REPO, EpisodeConfig
 
@@ -42,32 +42,37 @@ class ADE20kSegCmd:
 
         device = torch.device(self.device)
 
+        # Load model + probe TOGETHER. For canvit: CanViTForSemanticSegmentation
+        # bundles the bare CanViT and its SegmentationProbe head. For dinov3:
+        # the teacher and the seg probe are independent objects (no fused class).
+        # Either way, we hand the same (extract, probe) pair to the
+        # model-agnostic eval pipeline downstream.
         if self.model == "canvit":
-            m = CanViTForPretrainingHFHub.from_pretrained(self.episode.model_repo).to(device).eval()
-            cg = self.episode.canvas_grid or self.scene_size // m.backbone.patch_size_px
-            # Load probe for entropy policy
-            probe_for_entropy = None
-            if self.episode.policy == "entropy_coarse_to_fine":
-                probe_for_entropy = SegmentationProbe.from_pretrained(self.probe_repo).to(device).eval()
+            seg = CanViTForSemanticSegmentation.from_pretrained_with_probe(
+                pretrained_repo=self.episode.model_repo, probe_repo=self.probe_repo,
+            ).to(device).eval()
+            probe = seg.head
+            cg = self.episode.canvas_grid or self.scene_size // seg.canvit.backbone.patch_size_px
             extract = canvit_extractor(
-                m, policy_name=self.episode.policy, n_timesteps=self.episode.n_timesteps,
+                seg.canvit, policy_name=self.episode.policy, n_timesteps=self.episode.n_timesteps,
                 canvas_grid=cg, glimpse_px=self.episode.glimpse_px,
                 min_scale=self.episode.min_scale, max_scale=self.episode.max_scale,
-                probe=probe_for_entropy,
+                probe=probe if self.episode.policy == "entropy_coarse_to_fine" else None,
             )
             meta = {"model_repo": self.episode.model_repo, "canvas_grid": cg,
                     "policy": self.episode.policy, "n_timesteps": self.episode.n_timesteps}
         else:
             from canvit_pytorch.teacher import load_teacher
             teacher = load_teacher(self.teacher_repo, device)
+            probe = SegmentationProbe.from_pretrained(self.probe_repo).to(device).eval()
             extract = dinov3_extractor(teacher, eval_resolution=self.eval_resolution)
             meta = {"model": self.teacher_repo, "eval_resolution": self.eval_resolution}
 
         cfg = Config(
-            probe_repo=self.probe_repo, output=self.output, scene_size=self.scene_size,
+            output=self.output, scene_size=self.scene_size,
             device=self.device, batch_size=self.batch_size, num_workers=self.num_workers,
         )
-        run(cfg, extract, metadata=meta)
+        run(cfg, extract, probe, metadata=meta)
 
 
 @dataclass
