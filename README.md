@@ -38,6 +38,6 @@ uv run pytest
 | Repo | Role |
 |------|------|
 | [CanViT-PyTorch-Next](https://github.com/yberreby/CanViT-PyTorch-Next) (private) | Core model (`canvit` package) |
-| [CanViT-probes](https://github.com/m2b3/CanViT-probes) | Probes, datasets, metrics, training |
+| [CanViT-specialize](https://github.com/m2b3/CanViT-specialize) | Probes, datasets, metrics, training |
 | [CanViT-pretrain](https://github.com/m2b3/CanViT-pretrain) | Model pretraining |
 | [CanViT-Toward-AVFMs](https://github.com/m2b3/CanViT-Toward-AVFMs) | Paper (.pt → JSON → PDF) |
