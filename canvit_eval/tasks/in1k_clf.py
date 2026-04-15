@@ -26,6 +26,12 @@ TOP_K = 5
 DEFAULT_FINETUNED_REPO = "canvit/canvitb16-add-vpe-finetune-g128px-s512px-in1k-2026-04-06"
 DEFAULT_PROBE_REPO = "yberreby/dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe"
 
+# Flagship CanViT-B was pretrained at canvas_grid=32 only — its CLS standardizer
+# is initialized for c=32 and undefined for other grids. Fusion (proj → destandardize
+# → probe) therefore always uses the c=32 stats, regardless of runtime canvas_grid.
+# This lets us sweep inference canvas_grid without retraining the probe.
+FUSION_CANVAS_GRID = 32
+
 
 @dataclass(kw_only=True)
 class Config(TaskConfig):
@@ -58,12 +64,12 @@ def _load_classifier(cfg: Config, device: torch.device) -> CanViTForImageClassif
         clf = CanViTForImageClassification.from_pretrained(cfg.episode.model_repo)
         log.info("Loaded finetuned classifier from %s (%d classes)", cfg.episode.model_repo, clf.n_classes)
     else:
-        canvas_grid = cfg.episode.canvas_grid
-        assert canvas_grid is not None
         clf = CanViTForImageClassification.from_pretrained_with_probe(
-            pretrained_repo=cfg.episode.model_repo, probe_repo=cfg.probe_repo, canvas_grid=canvas_grid,
+            pretrained_repo=cfg.episode.model_repo, probe_repo=cfg.probe_repo,
+            canvas_grid=FUSION_CANVAS_GRID,
         )
-        log.info("Fused classifier from %s + %s (%d classes)", cfg.episode.model_repo, cfg.probe_repo, clf.n_classes)
+        log.info("Fused classifier from %s + %s (%d classes) using c=%d stats",
+                 cfg.episode.model_repo, cfg.probe_repo, clf.n_classes, FUSION_CANVAS_GRID)
     return clf.to(device).eval()
 
 
