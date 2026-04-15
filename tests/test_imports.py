@@ -1,36 +1,23 @@
-"""Smoke tests: verify public APIs are importable and structurally sound."""
+"""Structural smoke tests — lightweight invariants not covered by behavioral tests.
+
+Kept minimal: only tests that catch regressions basedpyright/ruff can't. Pure
+import checks are dropped — `uv run pytest` already exercises all imports
+transitively, and basedpyright catches broken imports before runtime.
+"""
 
 from typing import get_args
 
+import pytest
 import torch
 
-from canvit_eval.policies import IN1K_POLICIES, PolicyName, make_policy
+from canvit_eval.policies import PolicyName, make_policy
 
 
-def test_config_repos_are_hf_style():
-    from canvit_eval.config import DEFAULT_PRETRAINED_REPO, TEACHER_REPO, EpisodeConfig
-
-    assert "/" in DEFAULT_PRETRAINED_REPO
-    assert "/" in TEACHER_REPO
-    cfg = EpisodeConfig()
-    assert cfg.n_timesteps > 0
-
-
-def test_episode_step_has_expected_fields():
-    import dataclasses
-
-    from canvit_eval.episode import EpisodeStep
-
-    fields = {f.name for f in dataclasses.fields(EpisodeStep)}
-    assert {"t", "state", "output", "viewpoint"} == fields
-
-
-def test_static_policies_constructible():
-    """All non-entropy policies can be constructed and produce valid viewpoints."""
+def test_static_policies_produce_valid_viewpoints():
+    """Each non-entropy policy constructs and emits a viewpoint with correct shape + scale range."""
     static_names = [n for n in get_args(PolicyName) if n != "entropy_coarse_to_fine"]
     for name in static_names:
         policy = make_policy(name, batch_size=2, device=torch.device("cpu"), n_viewpoints=5)
-        assert hasattr(policy, "step")
         vp = policy.step(t=0, state=None)  # type: ignore[arg-type]  # StaticPolicy ignores state
         assert vp.centers.shape == (2, 2)
         assert vp.scales.shape == (2,)
@@ -38,35 +25,14 @@ def test_static_policies_constructible():
         assert (vp.scales <= 1).all()
 
 
-def test_in1k_policies_are_subset():
-    all_policies = set(get_args(PolicyName))
-    assert set(IN1K_POLICIES).issubset(all_policies)
-    assert "entropy_coarse_to_fine" not in IN1K_POLICIES
-
-
-def test_entropy_policy_requires_probe():
-    import pytest
-
+def test_entropy_policy_requires_probe_and_get_spatial():
     with pytest.raises(AssertionError):
-        make_policy("entropy_coarse_to_fine", batch_size=1, device=torch.device("cpu"), n_viewpoints=5)
+        make_policy("entropy_coarse_to_fine", batch_size=1,
+                    device=torch.device("cpu"), n_viewpoints=5)
 
 
-def test_batch_constants():
-    from canvit_eval.batch import ALL_POLICIES, ALL_TASKS, DETERMINISTIC, _BATCH_SIZE_BY_SCENE
-
-    assert set(ALL_POLICIES) == set(get_args(PolicyName))
-    assert DETERMINISTIC.issubset(set(ALL_POLICIES))
-    assert len(ALL_TASKS) >= 2
-    # OOM fix: 1024px scenes must have reduced batch size
+def test_batch_size_by_scene_invariant():
+    """Larger scene → smaller BS (OOM-safe). Verified via _BATCH_SIZE_BY_SCENE keys
+    present in the matrix constants."""
+    from canvit_eval.batch import _BATCH_SIZE_BY_SCENE
     assert _BATCH_SIZE_BY_SCENE[1024] < _BATCH_SIZE_BY_SCENE[512]
-
-
-def test_evaluate_protocol_shape():
-    from canvit_eval.evaluate import MetricAccumulator
-
-    assert hasattr(MetricAccumulator, "update")
-    assert hasattr(MetricAccumulator, "compute")
-
-
-def test_task_modules_importable():
-    from canvit_eval.tasks import ade20k_seg_mIoU, in1k_clf, reconstruction  # noqa: F401

@@ -192,7 +192,7 @@ def _ade20k_seg_jobs(
                 out = d / f"{stem}_{ts}_r{run}.pt"
                 jobs.append(EvalJob(
                     task="ade20k-seg",
-                    args=["ade20k-seg", "--probe-repo", probe,
+                    args=["ade20k-seg-canvit", "--probe-repo", probe,
                           "--episode.policy", policy, "--episode.n-timesteps", str(n_timesteps),
                           "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
                           "--batch-size", str(bs), "--output", str(out)],
@@ -208,7 +208,7 @@ def _ade20k_seg_jobs(
             out = d / f"{stem}_{ts}.pt"
             jobs.append(EvalJob(
                 task="ade20k-seg",
-                args=["ade20k-seg", "--model", "dinov3",
+                args=["ade20k-seg-dinov3",
                       "--probe-repo", f"canvit/probe-ade20k-40k-{variant}-{res}px",
                       "--teacher-repo", teacher_repo,
                       "--eval-resolution", str(res), "--output", str(out)],
@@ -224,7 +224,7 @@ def _ade20k_seg_jobs(
         out = d / f"{stem}_{ts}.pt"
         jobs.append(EvalJob(
             task="ade20k-seg",
-            args=["ade20k-seg", "--probe-repo", _probe_repo(scene, grid),
+            args=["ade20k-seg-canvit", "--probe-repo", _probe_repo(scene, grid),
                   "--episode.policy", "coarse_to_fine", "--episode.n-timesteps", "1",
                   "--episode.canvas-grid", str(grid), "--scene-size", str(scene),
                   "--batch-size", str(bs), "--output", str(out)],

@@ -15,9 +15,10 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from canvit_specialize.training.utils import collect_metadata
+
 from canvit_eval.config import TEACHER_REPO, EpisodeConfig
 from canvit_eval.runner import eval_batches, load_model
-from canvit_eval.utils import collect_metadata
 
 log = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
