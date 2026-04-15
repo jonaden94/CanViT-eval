@@ -320,9 +320,11 @@ def test_eval_job_structural_tuple_is_unique():
 
 
 def test_in1k_resolutions_disjoint():
-    """Baseline vs extras must not overlap — otherwise include-extra-grids would
-    duplicate baseline jobs."""
-    assert not (set(IN1K_RESOLUTIONS) & set(EXTRA_IN1K_RESOLUTIONS))
+    """Baseline vs extras must not overlap on (scene, grid) — otherwise
+    include-extra-grids would duplicate baseline jobs."""
+    baseline = {(s, g) for s, g, _ in IN1K_RESOLUTIONS}
+    extras = {(s, g) for s, g, _ in EXTRA_IN1K_RESOLUTIONS}
+    assert not (baseline & extras)
 
 
 def test_in1k_filename_encodes_scene_and_grid():
@@ -365,22 +367,27 @@ def test_in1k_include_extras_sweeps_frozen_only():
     assert len(ext_ft) == len(base_ft)
 
     # Extras cover exactly EXTRA_IN1K_RESOLUTIONS × 4 policies.
+    baseline_res = {(s, g) for s, g, _bs in IN1K_RESOLUTIONS}
     frozen_extra = {(j.scene_size, j.canvas_grid) for j in ext_frozen
-                    if (j.scene_size, j.canvas_grid) not in set(IN1K_RESOLUTIONS)}
-    assert frozen_extra == set(EXTRA_IN1K_RESOLUTIONS)
+                    if (j.scene_size, j.canvas_grid) not in baseline_res}
+    assert frozen_extra == {(s, g) for s, g, _bs in EXTRA_IN1K_RESOLUTIONS}
 
 
 def test_in1k_scene_and_grid_appear_in_cli_args():
-    """The CLI must receive --scene-size and --episode.canvas-grid so the task picks
-    up the right resolution; otherwise it would silently fall back to defaults."""
+    """The CLI must receive --scene-size, --batch-size, and --episode.canvas-grid
+    so the task picks up the right resolution; otherwise it would silently fall
+    back to defaults (risk: B=64 OOM at c=64 s=1024)."""
+    # Batch size per (scene, grid) comes from IN1K_RESOLUTIONS/EXTRA_IN1K_RESOLUTIONS tuples.
+    bs_lookup = {(s, g): bs for s, g, bs in IN1K_RESOLUTIONS + EXTRA_IN1K_RESOLUTIONS}
     jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21,
                              tasks=["in1k-clf"], include_extra_grids=True)
     for j in jobs:
         if j.task != "in1k-clf":
             continue
-        assert "--scene-size" in j.args
-        idx = j.args.index("--scene-size")
-        assert j.args[idx + 1] == str(j.scene_size)
-        assert "--episode.canvas-grid" in j.args
-        idx = j.args.index("--episode.canvas-grid")
-        assert j.args[idx + 1] == str(j.canvas_grid)
+        for flag, expected in [
+            ("--scene-size", str(j.scene_size)),
+            ("--episode.canvas-grid", str(j.canvas_grid)),
+            ("--batch-size", str(bs_lookup[(j.scene_size, j.canvas_grid)])),
+        ]:
+            assert flag in j.args, f"{flag} missing from {j.args}"
+            assert j.args[j.args.index(flag) + 1] == expected

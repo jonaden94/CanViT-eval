@@ -122,24 +122,25 @@ EXTRA_ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 24, 32),
 ]
 
-# IN1K classification sweep — (scene_size, canvas_grid) pairs. Natural coupling: scene = grid * 16.
+# IN1K classification sweep — (scene_size, canvas_grid, batch_size). Natural coupling: scene = grid * 16.
+# batch_size scales with scene² (input tensor memory dominates at large scenes on a 24GB 4090).
 #
 # IN1K probes are canvas-grid-agnostic: the classification head operates on recurrent_cls[:, 0]
 # (a single CLS token of dim D), not on spatial tiles. Same fused head weights work at any
-# grid. The pretraining standardizer used during fusion is selected per-grid, but the downstream
-# linear classifier is unchanged.
+# grid. Fusion always uses the c=32 standardizer (see FUSION_CANVAS_GRID in tasks/in1k_clf.py);
+# only the runtime canvas_grid varies across this sweep.
 #
 # EXTRA_IN1K_RESOLUTIONS feeds the "canvas size is irrelevant for IN1K" paper claim
 # (contrast with ADE20K where canvas grid materially affects mIoU). Finetuned mode is baseline-
 # only — the model was finetuned at s=512/c=32; varying inference resolution for finetuned
 # weights is a separate (not-the-paper-claim) question.
-IN1K_RESOLUTIONS: list[tuple[int, int]] = [
-    (512, 32),
+IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
+    (512, 32, 64),
 ]
-EXTRA_IN1K_RESOLUTIONS: list[tuple[int, int]] = [
-    (128, 8),
-    (256, 16),
-    (1024, 64),
+EXTRA_IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
+    (128, 8, 128),     # 128² images — bigger batch fits easily
+    (256, 16, 64),
+    (1024, 64, 8),     # 1024² × B=64 → ~1GB input + ~1GB canvas state; conservative B=8
 ]
 
 # DINOv3 passive baselines: 2 variants × 7 resolutions = 14 evals.
@@ -301,11 +302,11 @@ def _ade20k_seg_jobs(
 def _in1k_clf_jobs(
     out_dir: Path, *, n_runs: int, n_timesteps: int, ts: str,
     mode: Literal["frozen", "finetuned"],
-    resolutions: list[tuple[int, int]],
+    resolutions: list[tuple[int, int, int]],
 ) -> list[EvalJob]:
     jobs: list[EvalJob] = []
     d = out_dir / f"in1k_clf_{mode}"
-    for scene, grid in resolutions:
+    for scene, grid, bs in resolutions:
         for policy in IN1K_POLICIES:
             for run in range(_n_runs_for(policy, n_runs)):
                 stem = f"in1k_{policy}_s{scene}_c{grid}"
@@ -314,6 +315,7 @@ def _in1k_clf_jobs(
                     task="in1k-clf",
                     args=["in1k-clf", "--mode", mode,
                           "--scene-size", str(scene),
+                          "--batch-size", str(bs),
                           "--episode.policy", policy,
                           "--episode.canvas-grid", str(grid),
                           "--episode.n-timesteps", str(n_timesteps),
