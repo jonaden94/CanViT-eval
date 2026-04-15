@@ -36,3 +36,16 @@ def test_batch_size_by_scene_invariant():
     present in the matrix constants."""
     from canvit_eval.batch import _BATCH_SIZE_BY_SCENE
     assert _BATCH_SIZE_BY_SCENE[1024] < _BATCH_SIZE_BY_SCENE[512]
+
+
+def test_every_cli_config_has_a_run_method():
+    """The tyro dispatch in __main__ calls cfg.run() on every subcommand. Each
+    Config must expose a no-arg run() method returning Path. Parametrized so an
+    incomplete migration (adding a new Config class without run()) fails loudly."""
+    from canvit_eval.tasks.ade20k_seg import CanViTConfig, DINOv3Config
+    from canvit_eval.tasks.in1k_clf import Config as IN1KConfig
+    from canvit_eval.tasks.reconstruction import Config as ReconConfig
+
+    for cls in [CanViTConfig, DINOv3Config, IN1KConfig, ReconConfig]:
+        assert callable(getattr(cls, "run", None)), \
+            f"{cls.__name__} is missing a run() method (required by __main__ dispatch)"
