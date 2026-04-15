@@ -15,9 +15,11 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from canvit_specialize.training.utils import collect_metadata
+
 from canvit_eval.config import TEACHER_REPO, EpisodeConfig
 from canvit_eval.runner import eval_batches, load_model
-from canvit_eval.utils import collect_metadata
+from canvit_eval.tasks.base import TaskConfig
 
 log = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
@@ -50,18 +52,19 @@ def _default_image_dir() -> Path:
     return ade20k_root() / "images" / "validation"
 
 
-@dataclass
-class Config:
+@dataclass(kw_only=True)
+class Config(TaskConfig):
     model_repo: str
-    episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(policy="random", n_timesteps=10))
-    image_dir: Path = field(default_factory=_default_image_dir)
     output: Path = Path("results/recon.pt")
-    scene_size: int = 512
-    device: str = "cuda"
     batch_size: int = 16
     num_workers: int = 4
-    amp: bool = True
+    episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(policy="random", n_timesteps=10))
+    image_dir: Path = field(default_factory=_default_image_dir)
+    scene_size: int = 512
     teacher_cache: Path | None = None
+
+    def run(self) -> Path:
+        return evaluate(self)
 
 
 @torch.inference_mode()

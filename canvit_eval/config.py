@@ -13,8 +13,9 @@ from canvit_eval.policies import PolicyName
 
 log = logging.getLogger(__name__)
 
-# Canonical model repo — used as default everywhere.
-DEFAULT_MODEL_REPO = "canvit/canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02"
+# Canonical pretrained CanViT-B repo — IN21K, additive canvas, VPE, DINOv3-B/16 teacher.
+# Single source of truth; consumed by EpisodeConfig + all tasks that load the pretrained backbone.
+DEFAULT_PRETRAINED_REPO = "canvit/canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02"
 
 # DINOv3 teacher repo.
 TEACHER_REPO = "facebook/dinov3-vitb16-pretrain-lvd1689m"
@@ -61,7 +62,7 @@ def imagenet_val_dir() -> Path:
 class EpisodeConfig:
     """How to run CanViT episodes. Shared by all CanViT-based tasks."""
 
-    model_repo: str = DEFAULT_MODEL_REPO
+    model_repo: str = DEFAULT_PRETRAINED_REPO
     policy: PolicyName = "coarse_to_fine"
     n_timesteps: int = 21
     canvas_grid: int | None = None  # None → scene_size // patch_size

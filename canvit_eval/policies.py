@@ -92,7 +92,10 @@ class EntropyGuidedC2F:
         self._probe = probe
         self._get_spatial_fn = get_spatial_fn
 
-        self._levels = [level_viewpoints(lvl) for lvl in range(3)]
+        # 3 C2F levels exactly match the canonical T=21 rollout: 1 full-scene + 4 half-quadrants + 16 quarter-tiles = 21.
+        # Level 0 is a single full-scene glimpse; no tile mask / visited bookkeeping needed.
+        N_LEVELS = 3
+        self._levels = [level_viewpoints(lvl) for lvl in range(N_LEVELS)]
         self._level_starts: list[int] = []
         t = 0
         for lvl in self._levels:
@@ -100,7 +103,7 @@ class EntropyGuidedC2F:
             t += len(lvl)
 
         self._tile_masks: list[Tensor | None] = [None]
-        for lvl in range(1, 3):
+        for lvl in range(1, N_LEVELS):
             self._tile_masks.append(_build_tile_masks(self._levels[lvl], canvas_grid, device))
 
         self._visited: list[Tensor | None] = [None for _ in self._levels]
