@@ -42,9 +42,6 @@ uv run python -m canvit_eval reconstruction \
 # Full paper matrix (5 seeds, sequential, single GPU):
 uv run python -m canvit_eval.batch --n-runs 5
 
-# Resume: skip jobs whose structural output already exists (timestamp-agnostic):
-uv run python -m canvit_eval.batch --n-runs 5 --skip-existing
-
 # Filter:
 uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 32 --policies coarse_to_fine
 
@@ -54,6 +51,24 @@ uv run python -m canvit_eval.batch --include-extra-grids
 # Preview commands without running:
 uv run python -m canvit_eval.batch --dry-run
 ```
+
+### Incremental pooling with `--skip-existing`
+
+`--skip-existing` matches prior outputs by structural identity (task, model,
+policy, scene, grid, run_idx) via a timestamp-agnostic glob, so crashed
+batches resume cleanly AND seed counts pool over time:
+
+```bash
+# Day 1: preliminary n=1 on a new grid.
+uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 9 --include-extra-grids --n-runs 1
+
+# Day 2: add 4 more seeds without rerunning r=0. Export bootstraps over all 5.
+uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 9 --include-extra-grids --n-runs 5 --skip-existing
+```
+
+Each run writes `{stem}_{UTC_ts}_r{run}.pt`; the paper's export
+(`export/ade20k_seg.py:_latest_per_run`) keeps the newest timestamp per run_idx,
+so reruns don't contaminate old seeds if the config is unchanged.
 
 ## Architecture
 
