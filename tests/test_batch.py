@@ -77,13 +77,26 @@ def test_all_tasks_combined():
 
 
 def test_include_extra_grids_adds_jobs():
-    """--include-extra-grids adds (policies + t=0) rows for each EXTRA_CANVAS_GRIDS entry."""
+    """--include-extra-grids adds jobs for each EXTRA_CANVAS_GRIDS entry, modulo
+    the entropy_coarse_to_fine policy which is skipped on non-power-of-2 grids."""
     base = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["ade20k-seg"])
     extended = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21,
                                  tasks=["ade20k-seg"], include_extra_grids=True)
     added = len(extended) - len(base)
-    # Each extra grid adds: len(ALL_POLICIES) policy-curve jobs + 1 t=0 job.
-    assert added == len(EXTRA_CANVAS_GRIDS) * (len(ALL_POLICIES) + 1)
+    # Per extra grid: ALL_POLICIES policy-curve jobs (- 1 if grid not power-of-2)
+    # + 1 t=0 job. EXTRA_CANVAS_GRIDS currently holds c9/10/12/24 — all non-power-of-2.
+    non_pow2 = sum(1 for _, g in EXTRA_CANVAS_GRIDS if (g & (g - 1)) != 0)
+    expected_per_grid = len(ALL_POLICIES) + 1  # policy-curve + t=0
+    assert added == len(EXTRA_CANVAS_GRIDS) * expected_per_grid - non_pow2
+
+
+def test_entropy_c2f_skipped_on_non_power_of_two():
+    """entropy_coarse_to_fine can't run on c9/10/12/24; builder must exclude them."""
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21,
+                             tasks=["ade20k-seg"], include_extra_grids=True)
+    offending = [j for j in jobs if j.policy == "entropy_coarse_to_fine"
+                 and j.canvas_grid in {9, 10, 12, 24}]
+    assert offending == [], f"entropy_c2f jobs leaked into non-power-of-2 grids: {offending}"
 
 
 def test_output_paths_unique():

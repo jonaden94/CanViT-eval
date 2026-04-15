@@ -65,6 +65,23 @@ def _n_runs_for(policy: PolicyName, n_runs: int) -> int:
     return 1 if policy in DETERMINISTIC else n_runs
 
 
+def _is_power_of_two(n: int) -> bool:
+    return n > 0 and (n & (n - 1)) == 0
+
+
+def _policy_runs_on_grid(policy: PolicyName, canvas_grid: int) -> bool:
+    """Some policies have structural canvas-grid constraints.
+
+    entropy_coarse_to_fine partitions the canvas into C2F tiles (2x2, 4x4) —
+    those partitions only align cleanly with power-of-2 canvas grids. On
+    c9/c10/c12/c24 the tile-mask builder at policies.py:66 asserts and the
+    job crashes.
+    """
+    if policy == "entropy_coarse_to_fine":
+        return _is_power_of_two(canvas_grid)
+    return True
+
+
 # (scene_size, canvas_grid, batch_size) for CanViT policy-curve evals.
 # Paper's canonical matrix. See EXTRA_ADE20K_RESOLUTIONS for the opt-in extension.
 ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
@@ -182,6 +199,8 @@ def _ade20k_seg_jobs(
     for scene, grid, bs in ade20k_res:
         probe = _probe_repo(scene, grid)
         for policy in ALL_POLICIES:
+            if not _policy_runs_on_grid(policy, grid):
+                continue
             for run in range(_n_runs_for(policy, n_runs)):
                 stem = f"{policy}_s{scene}_c{grid}"
                 out = d / f"{stem}_{ts}_r{run}.pt"
