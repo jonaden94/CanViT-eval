@@ -33,6 +33,7 @@ Usage:
 """
 
 import logging
+import re
 import subprocess
 import sys
 import time
@@ -98,17 +99,28 @@ CANVAS_GRIDS: list[tuple[int, int]] = [
     (512, 8), (512, 16), (512, 32), (1024, 64),
 ]
 
-# Opt-in via --include-extra-grids. These are the c9/10/12/24 @ s512 probes trained 2026-04-14
-# to match the DINOv3 baseline resolutions {144, 160, 192, 384} px. Not in default runs so
-# arXiv-v1 reproduction remains identical by default.
-# Grids in EXTRA with s=512 probes that we additionally want multi-step policy
-# evals for (paper default only runs policy curves at c32@s512 and c64@s1024).
-# c8 and c16 had only t=0 passive-comparison data pre-2026-04-14; multi-step
-# policy-curve evals complete the canvas-grid-impact story.
+# Opt-in via --include-extra-grids. Two disjoint lists by design:
+#   EXTRA_CANVAS_GRIDS        — appended to CANVAS_GRIDS for t=0 single-glimpse probes.
+#   EXTRA_ADE20K_RESOLUTIONS  — appended to ADE20K_RESOLUTIONS for multi-step policy curves.
+#
+# c8 and c16 are ONLY in EXTRA_ADE20K_RESOLUTIONS (not EXTRA_CANVAS_GRIDS) because their
+# t=0 data is already in CANVAS_GRIDS. Listing them in both would produce duplicate
+# `canvit_s512_c{8,16}_{ts}.pt` job specs at matrix-build time.
+#
+# Grid set motivation: c9/10/12/24 mirror the DINOv3 baseline input resolutions
+# {144, 160, 192, 384} px (grid = px/16), enabling matched-token-count comparison.
+# c8 and c16 round out the sweep for the canvas-grid-impact figure.
 EXTRA_CANVAS_GRIDS: list[tuple[int, int]] = [
-    (512, 8), (512, 9), (512, 10), (512, 12), (512, 16), (512, 24),
+    (512, 9), (512, 10), (512, 12), (512, 24),
 ]
-EXTRA_ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [(s, g, 32) for s, g in EXTRA_CANVAS_GRIDS]
+EXTRA_ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
+    (512, 8, 32),   # multi-step only; t=0 already in CANVAS_GRIDS
+    (512, 9, 32),
+    (512, 10, 32),
+    (512, 12, 32),
+    (512, 16, 32),  # multi-step only; t=0 already in CANVAS_GRIDS
+    (512, 24, 32),
+]
 
 # DINOv3 passive baselines: 2 variants × 7 resolutions = 14 evals.
 # 768/1024 px DINOv3 probes would be required to match CanViT c48@s512 and c64@s1024 data
@@ -156,6 +168,12 @@ TaskName = Literal["ade20k-seg", "in1k-clf", "recon"]
 ALL_TASKS: list[TaskName] = list(get_args(TaskName))
 
 
+# Matches the `YYYYMMDDThhmmssZ` UTC timestamp baked into every output filename
+# by `_utc_timestamp`. Used to strip the timestamp for structural globs in
+# `already_done` (so re-invocations match prior runs regardless of when they ran).
+_TS_RE = re.compile(r"\d{8}T\d{6}Z")
+
+
 @dataclass(frozen=True)
 class EvalJob:
     """One evaluation invocation.
@@ -163,13 +181,13 @@ class EvalJob:
     Structural fields (task/model/policy/scene_size/canvas_grid/input_px/run_idx)
     drive filter_jobs(), skip_existing matching, and per-job logging — so we
     never parse filenames at runtime. `args` is what's passed to canvit_eval CLI.
-    `output_stem` is the timestamp-free structural identity used to check for
-    prior outputs (any .pt under output_dir/output_stem*.pt counts as done).
+    `already_done()` is a timestamp-agnostic glob match on the FULL filename
+    (so r0 and r1 of the same config are distinguishable).
     """
     task: TaskName
     args: list[str]
     output: Path
-    output_stem: str          # filename without timestamp, glob-matched for skip-existing
+    output_stem: str          # filename prefix up to the timestamp (for logs + tests)
     model: str                # "canvit" | "canvit-finetuned" | "dinov3-b" | "dinov3-s" | ablation-slug
     policy: PolicyName | None = None
     scene_size: int | None = None
@@ -179,8 +197,11 @@ class EvalJob:
 
     def already_done(self) -> bool:
         """True iff any .pt matching this job's structural identity exists
-        in the output dir (timestamp-agnostic glob match)."""
-        return any(self.output.parent.glob(f"{self.output_stem}*.pt"))
+        in the output dir. Matches on the full filename with the timestamp
+        replaced by `*` — so different run_idx values are distinct (r0 does
+        NOT satisfy r1's check)."""
+        pattern = _TS_RE.sub("*", self.output.name)
+        return any(self.output.parent.glob(pattern))
 
     def describe(self) -> str:
         parts = [self.task, f"model={self.model}"]

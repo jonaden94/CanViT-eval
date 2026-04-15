@@ -77,17 +77,27 @@ def test_all_tasks_combined():
 
 
 def test_include_extra_grids_adds_jobs():
-    """--include-extra-grids adds jobs for each EXTRA_CANVAS_GRIDS entry, modulo
-    the entropy_coarse_to_fine policy which is skipped on non-power-of-2 grids."""
+    """--include-extra-grids adds:
+      - len(EXTRA_ADE20K_RESOLUTIONS) multi-step entries × len(ALL_POLICIES) policies
+        (minus entropy_c2f on non-power-of-2 grids)
+      - len(EXTRA_CANVAS_GRIDS) additional t=0 jobs (disjoint from CANVAS_GRIDS by design).
+    """
+    from canvit_eval.batch import EXTRA_ADE20K_RESOLUTIONS
     base = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["ade20k-seg"])
     extended = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21,
                                  tasks=["ade20k-seg"], include_extra_grids=True)
     added = len(extended) - len(base)
-    # Per extra grid: ALL_POLICIES policy-curve jobs (- 1 if grid not power-of-2)
-    # + 1 t=0 job. EXTRA_CANVAS_GRIDS currently holds c9/10/12/24 — all non-power-of-2.
-    non_pow2 = sum(1 for _, g in EXTRA_CANVAS_GRIDS if (g & (g - 1)) != 0)
-    expected_per_grid = len(ALL_POLICIES) + 1  # policy-curve + t=0
-    assert added == len(EXTRA_CANVAS_GRIDS) * expected_per_grid - non_pow2
+    multi_non_pow2_skipped = sum(1 for _, g, _ in EXTRA_ADE20K_RESOLUTIONS if (g & (g - 1)) != 0)
+    expected_multistep = len(EXTRA_ADE20K_RESOLUTIONS) * len(ALL_POLICIES) - multi_non_pow2_skipped
+    expected_t0 = len(EXTRA_CANVAS_GRIDS)
+    assert added == expected_multistep + expected_t0
+
+
+def test_extra_canvas_grids_disjoint_from_canvas_grids():
+    """Avoid regression: (512, 8) and (512, 16) must NOT be in EXTRA_CANVAS_GRIDS
+    because they're already in CANVAS_GRIDS — duplicating them produces identical
+    t=0 output paths."""
+    assert set(EXTRA_CANVAS_GRIDS).isdisjoint(set(CANVAS_GRIDS))
 
 
 def test_entropy_c2f_skipped_on_non_power_of_two():
@@ -184,3 +194,120 @@ def test_skip_existing_is_timestamp_agnostic(tmp_path):
     other = next(j for j in jobs if j.policy == "fine_to_coarse"
                  and j.scene_size == 512 and j.canvas_grid == 32 and j.run_idx == 0)
     assert not other.already_done()
+
+
+def test_skip_existing_is_per_run_idx(tmp_path):
+    """Existing r=0 on disk must NOT satisfy r=1's already_done check —
+    different run_idx values are independent samples."""
+    out_dir = tmp_path / "results"
+    ade_dir = out_dir / "ade20k_seg"
+    ade_dir.mkdir(parents=True)
+
+    # Only r=0 exists.
+    (ade_dir / "coarse_to_fine_s512_c32_20260101T000000Z_r0.pt").touch()
+
+    jobs = build_eval_matrix(out_dir, n_runs=2, n_timesteps=21, tasks=["ade20k-seg"])
+    r0 = next(j for j in jobs if j.policy == "coarse_to_fine"
+              and j.scene_size == 512 and j.canvas_grid == 32 and j.run_idx == 0
+              and j.input_px is None)
+    r1 = next(j for j in jobs if j.policy == "coarse_to_fine"
+              and j.scene_size == 512 and j.canvas_grid == 32 and j.run_idx == 1
+              and j.input_px is None)
+    assert r0.already_done(), "existing r0 file should match r0 job"
+    assert not r1.already_done(), \
+        "r1 job must NOT match an existing r0 file (regression from 2026-04-14 bug)"
+
+
+def test_skip_existing_respects_policy_boundary(tmp_path):
+    """Existing coarse_to_fine r0 must NOT satisfy fine_to_coarse r0."""
+    out_dir = tmp_path / "results"
+    ade_dir = out_dir / "ade20k_seg"
+    ade_dir.mkdir(parents=True)
+    (ade_dir / "coarse_to_fine_s512_c32_20260101T000000Z_r0.pt").touch()
+
+    jobs = build_eval_matrix(out_dir, n_runs=1, n_timesteps=21, tasks=["ade20k-seg"])
+    other = next(j for j in jobs if j.policy == "fine_to_coarse"
+                 and j.canvas_grid == 32 and j.scene_size == 512)
+    assert not other.already_done()
+
+
+def test_skip_existing_respects_scene_and_grid(tmp_path):
+    """Existing data at c32@s512 must NOT satisfy c64@s1024 or c9@s512."""
+    out_dir = tmp_path / "results"
+    ade_dir = out_dir / "ade20k_seg"
+    ade_dir.mkdir(parents=True)
+    (ade_dir / "coarse_to_fine_s512_c32_20260101T000000Z_r0.pt").touch()
+
+    jobs = build_eval_matrix(out_dir, n_runs=1, n_timesteps=21,
+                             tasks=["ade20k-seg"], include_extra_grids=True)
+    c64 = next(j for j in jobs if j.policy == "coarse_to_fine"
+               and j.canvas_grid == 64 and j.scene_size == 1024)
+    c9 = next(j for j in jobs if j.policy == "coarse_to_fine"
+              and j.canvas_grid == 9 and j.scene_size == 512)
+    assert not c64.already_done()
+    assert not c9.already_done()
+
+
+def test_skip_existing_fills_partial_n_runs(tmp_path):
+    """Integration-style: existing data at r=0..2, --n-runs 5 should leave r=0..2 in place
+    and generate fresh r=3, r=4 jobs that are NOT marked done."""
+    out_dir = tmp_path / "results"
+    ade_dir = out_dir / "ade20k_seg"
+    ade_dir.mkdir(parents=True)
+    for run in range(3):
+        (ade_dir / f"coarse_to_fine_s512_c32_20260101T000000Z_r{run}.pt").touch()
+
+    jobs = build_eval_matrix(out_dir, n_runs=5, n_timesteps=21, tasks=["ade20k-seg"])
+    c2f_c32 = [j for j in jobs if j.policy == "coarse_to_fine"
+               and j.scene_size == 512 and j.canvas_grid == 32 and j.input_px is None]
+    assert len(c2f_c32) == 5  # non-deterministic → full n_runs
+
+    done = [j for j in c2f_c32 if j.already_done()]
+    pending = [j for j in c2f_c32 if not j.already_done()]
+    assert sorted(j.run_idx for j in done) == [0, 1, 2], \
+        f"r0/r1/r2 should be done; got done={[j.run_idx for j in done]}"
+    assert sorted(j.run_idx for j in pending) == [3, 4], \
+        f"r3/r4 should be pending; got pending={[j.run_idx for j in pending]}"
+
+
+def test_n_runs_for_stochastic_matches_n_runs():
+    from canvit_eval.batch import _n_runs_for
+    assert _n_runs_for("coarse_to_fine", 5) == 5
+    assert _n_runs_for("fine_to_coarse", 10) == 10
+    assert _n_runs_for("random", 1) == 1
+
+
+def test_n_runs_for_deterministic_trimmed_to_one():
+    from canvit_eval.batch import _n_runs_for
+    assert _n_runs_for("entropy_coarse_to_fine", 5) == 1
+    assert _n_runs_for("repeated_full_scene", 10) == 1
+    assert _n_runs_for("entropy_coarse_to_fine", 1) == 1  # min of n_runs and 1
+
+
+def test_dinov3_canvas_grid_derivation():
+    """DINOv3 jobs must have canvas_grid = input_px // 16 (patch size)."""
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["ade20k-seg"])
+    dv3 = [j for j in jobs if j.model.startswith("dinov3-")]
+    assert dv3, "expected DINOv3 jobs in ade20k-seg batch"
+    for j in dv3:
+        assert j.input_px is not None and j.canvas_grid is not None
+        assert j.canvas_grid == j.input_px // 16, \
+            f"{j.output.name}: canvas_grid={j.canvas_grid} != input_px/16={j.input_px//16}"
+
+
+def test_eval_job_output_path_uniqueness_at_matrix_build():
+    """Within a single matrix build (i.e. single timestamp), no two jobs share an output path."""
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=10, n_timesteps=21, tasks=ALL_TASKS,
+                             include_extra_grids=True)
+    paths = [j.output for j in jobs]
+    assert len(paths) == len(set(paths)), "duplicate output paths inside one build_eval_matrix call"
+
+
+def test_eval_job_structural_tuple_is_unique():
+    """Combined (task, model, policy, scene_size, canvas_grid, input_px, run_idx) must be unique —
+    this is the skip-existing matching key."""
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=10, n_timesteps=21, tasks=ALL_TASKS,
+                             include_extra_grids=True)
+    keys = [(j.task, j.model, j.policy, j.scene_size, j.canvas_grid, j.input_px, j.run_idx)
+            for j in jobs]
+    assert len(keys) == len(set(keys)), "structural-identity tuple not unique across jobs"
