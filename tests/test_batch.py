@@ -91,12 +91,21 @@ def test_include_extra_grids_adds_jobs():
 
 
 def test_entropy_c2f_skipped_on_non_power_of_two():
-    """entropy_coarse_to_fine can't run on c9/10/12/24; builder must exclude them."""
+    """entropy_coarse_to_fine can't run on non-power-of-2 grids; builder must exclude them.
+    EXTRA_CANVAS_GRIDS may include mixed pow2 (c8, c16) and non-pow2 (c9, c10, c12, c24).
+    The gate must apply only to the non-pow2 subset, not drop c8/c16."""
     jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21,
                              tasks=["ade20k-seg"], include_extra_grids=True)
+    non_pow2_grids = {g for _, g in EXTRA_CANVAS_GRIDS if (g & (g - 1)) != 0}
     offending = [j for j in jobs if j.policy == "entropy_coarse_to_fine"
-                 and j.canvas_grid in {9, 10, 12, 24}]
+                 and j.canvas_grid in non_pow2_grids]
     assert offending == [], f"entropy_c2f jobs leaked into non-power-of-2 grids: {offending}"
+    # And entropy_c2f SHOULD appear for power-of-2 extras (c8, c16) — sanity-check present.
+    pow2_extra = {g for _, g in EXTRA_CANVAS_GRIDS if (g & (g - 1)) == 0}
+    if pow2_extra:
+        entropy_on_pow2 = [j for j in jobs if j.policy == "entropy_coarse_to_fine"
+                           and j.canvas_grid in pow2_extra]
+        assert entropy_on_pow2, "entropy_c2f should run on power-of-2 extra grids"
 
 
 def test_output_paths_unique():

@@ -101,8 +101,12 @@ CANVAS_GRIDS: list[tuple[int, int]] = [
 # Opt-in via --include-extra-grids. These are the c9/10/12/24 @ s512 probes trained 2026-04-14
 # to match the DINOv3 baseline resolutions {144, 160, 192, 384} px. Not in default runs so
 # arXiv-v1 reproduction remains identical by default.
+# Grids in EXTRA with s=512 probes that we additionally want multi-step policy
+# evals for (paper default only runs policy curves at c32@s512 and c64@s1024).
+# c8 and c16 had only t=0 passive-comparison data pre-2026-04-14; multi-step
+# policy-curve evals complete the canvas-grid-impact story.
 EXTRA_CANVAS_GRIDS: list[tuple[int, int]] = [
-    (512, 9), (512, 10), (512, 12), (512, 24),
+    (512, 8), (512, 9), (512, 10), (512, 12), (512, 16), (512, 24),
 ]
 EXTRA_ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [(s, g, 32) for s, g in EXTRA_CANVAS_GRIDS]
 
