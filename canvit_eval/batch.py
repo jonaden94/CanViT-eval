@@ -56,8 +56,8 @@ ALL_POLICIES: list[PolicyName] = list(get_args(PolicyName))
 # dataloader order. The batch builder trims n_runs → 1 for these to avoid waste.
 #
 #   repeated_full_scene     — static viewpoint sequence, no RNG.
-#   entropy_coarse_to_fine  — argmax over entropy scores (policies.py:140),
-#                             no RNG introduced anywhere in the episode.
+#   entropy_coarse_to_fine  — argmax over entropy scores in EntropyGuidedC2F.step
+#                             (policies.py); no RNG introduced anywhere in the episode.
 DETERMINISTIC: frozenset[PolicyName] = frozenset({"repeated_full_scene", "entropy_coarse_to_fine"})
 
 
@@ -74,7 +74,7 @@ def _policy_runs_on_grid(policy: PolicyName, canvas_grid: int) -> bool:
 
     entropy_coarse_to_fine partitions the canvas into C2F tiles (2x2, 4x4) —
     those partitions only align cleanly with power-of-2 canvas grids. On
-    c9/c10/c12/c24 the tile-mask builder at policies.py:66 asserts and the
+    c9/c10/c12/c24 `_build_tile_masks` in policies.py asserts and the
     job crashes.
     """
     if policy == "entropy_coarse_to_fine":
