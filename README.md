@@ -1,24 +1,58 @@
 # CanViT-eval
 
-Evaluation and benchmarking for CanViT. Produces `.pt` result files consumed by [CanViT-Toward-AVFMs](https://github.com/m2b3/CanViT-Toward-AVFMs) for figures and tables.
+Evaluation and benchmarking for CanViT. Produces `.pt` result files consumed by
+[CanViT-Toward-AVFMs](https://github.com/m2b3/CanViT-Toward-AVFMs) for figures
+and tables. All models and probes load from HuggingFace Hub — no local
+checkpoints needed.
 
-All models and probes loaded from HuggingFace Hub. No local checkpoints needed.
-
-Dataset paths are autodetected on known machines (crockett, nibi). Override with `ADE20K_ROOT` / `IMAGENET_VAL` env vars if needed. See `.envrc.example`.
+Dataset paths autodetect on crockett and Nibi; override with `ADE20K_ROOT` /
+`IMAGENET_VAL` env vars otherwise (see `.envrc.example`).
 
 ## Usage
 
-```bash
-# Batch eval — all paper results in one command:
-uv run python -m canvit_eval.batch --n-runs 1          # smoke test
-uv run python -m canvit_eval.batch --n-runs 5          # full paper
-uv run python -m canvit_eval.batch --tasks ade20k-seg   # single task
-uv run python -m canvit_eval.batch --dry-run            # print commands (for SLURM)
+### Single eval
 
-# Individual evals:
-uv run python -m canvit_eval ade20k-seg --probe-repo canvit/probe-ade20k-40k-s512-c32-in21k
-uv run python -m canvit_eval in1k-clf
-uv run python -m canvit_eval reconstruction --model-repo canvit/canvitb16-abl-...
+Each subcommand is a task Config dataclass with a `run()` method; tyro
+generates the CLI.
+
+```bash
+# CanViT ADE20K segmentation (multi-timestep episode):
+uv run python -m canvit_eval ade20k-seg-canvit \
+    --probe-repo canvit/probe-ade20k-40k-s512-c32-in21k \
+    --episode.policy coarse_to_fine --episode.n-timesteps 21 \
+    --output results/ade20k_seg/my_run.pt
+
+# DINOv3 ADE20K passive baseline (single forward pass):
+uv run python -m canvit_eval ade20k-seg-dinov3 \
+    --probe-repo canvit/probe-ade20k-40k-dv3b-256px \
+    --eval-resolution 256 \
+    --output results/ade20k_seg/dv3b_256px.pt
+
+# ImageNet-1K classification:
+uv run python -m canvit_eval in1k-clf --mode finetuned
+
+# Reconstruction quality (ablation checkpoints):
+uv run python -m canvit_eval reconstruction \
+    --model-repo canvit/canvitb16-abl-baseline-2026-03-02
+```
+
+### Batch — the full paper matrix
+
+```bash
+# Full paper matrix (5 seeds, sequential, single GPU):
+uv run python -m canvit_eval.batch --n-runs 5
+
+# Resume: skip jobs whose structural output already exists (timestamp-agnostic):
+uv run python -m canvit_eval.batch --n-runs 5 --skip-existing
+
+# Filter:
+uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 32 --policies coarse_to_fine
+
+# Include the newly-trained c9/10/12/24 @ s512 probes:
+uv run python -m canvit_eval.batch --include-extra-grids
+
+# Preview commands without running:
+uv run python -m canvit_eval.batch --dry-run
 ```
 
 ## Architecture

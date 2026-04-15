@@ -27,11 +27,6 @@ Usage:
 
     # Preview without running:
     uv run python -m canvit_eval.batch --dry-run
-
-    # SLURM array (one cluster job per row) — not used currently, Nibi allocation
-    # is no longer available, crockett is the primary eval machine:
-    uv run python -m canvit_eval.batch --dry-run > /tmp/eval_cmds.txt
-    sbatch --array=1-$(wc -l < /tmp/eval_cmds.txt) slurm/array.sbatch
 """
 
 import logging
