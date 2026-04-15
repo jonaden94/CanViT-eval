@@ -8,9 +8,9 @@ from canvit_eval.policies import IN1K_POLICIES, PolicyName, make_policy
 
 
 def test_config_repos_are_hf_style():
-    from canvit_eval.config import DEFAULT_MODEL_REPO, TEACHER_REPO, EpisodeConfig
+    from canvit_eval.config import DEFAULT_PRETRAINED_REPO, TEACHER_REPO, EpisodeConfig
 
-    assert "/" in DEFAULT_MODEL_REPO
+    assert "/" in DEFAULT_PRETRAINED_REPO
     assert "/" in TEACHER_REPO
     cfg = EpisodeConfig()
     assert cfg.n_timesteps > 0

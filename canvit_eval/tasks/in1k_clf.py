@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from canvit_pytorch import CanViTForImageClassification
-from canvit_eval.config import EpisodeConfig, imagenet_val_dir
+from canvit_eval.config import DEFAULT_PRETRAINED_REPO, EpisodeConfig, imagenet_val_dir
 from canvit_eval.datasets.imagenet import make_in1k_dataset
 from canvit_eval.runner import eval_batches
 from canvit_eval.utils import collect_metadata
@@ -21,7 +21,7 @@ from canvit_eval.utils import collect_metadata
 log = logging.getLogger(__name__)
 TOP_K = 5
 
-DEFAULT_PRETRAINED_REPO = "canvit/canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02"
+# DEFAULT_PRETRAINED_REPO (pretrained) lives in canvit_eval.config — single source of truth.
 DEFAULT_FINETUNED_REPO = "canvit/canvitb16-add-vpe-finetune-g128px-s512px-in1k-2026-04-06"
 DEFAULT_PROBE_REPO = "yberreby/dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe"
 
