@@ -63,6 +63,9 @@ class DINOv3Config(ADE20kBaseConfig):
     NOT at scene_size. Required — a mismatch silently degrades mIoU so there's no default."""
     teacher_repo: str = TEACHER_REPO
 
+    def run(self) -> Path:
+        return run_dinov3(self)
+
 
 def _loader(cfg: ADE20kBaseConfig) -> DataLoader:
     img_tf, mask_tf = make_val_transforms(cfg.scene_size, cfg.resize_mode)
