@@ -18,33 +18,36 @@ from canvit_specialize.training.utils import collect_metadata
 from canvit_eval.config import DEFAULT_PRETRAINED_REPO, EpisodeConfig, imagenet_val_dir
 from canvit_eval.datasets.imagenet import make_in1k_dataset
 from canvit_eval.runner import eval_batches
+from canvit_eval.tasks.base import TaskConfig
 
 log = logging.getLogger(__name__)
 TOP_K = 5
 
-# DEFAULT_PRETRAINED_REPO (pretrained) lives in canvit_eval.config — single source of truth.
 DEFAULT_FINETUNED_REPO = "canvit/canvitb16-add-vpe-finetune-g128px-s512px-in1k-2026-04-06"
 DEFAULT_PROBE_REPO = "yberreby/dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe"
 
 
-@dataclass
-class Config:
+@dataclass(kw_only=True)
+class Config(TaskConfig):
+    output: Path = Path("results/in1k_clf.pt")
+    batch_size: int = 64
     mode: Literal["finetuned", "frozen"] = "finetuned"
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(canvas_grid=32))
     probe_repo: str = DEFAULT_PROBE_REPO
     val_dir: Path = field(default_factory=imagenet_val_dir)
-    output: Path = Path("results/in1k_clf.pt")
-    device: str = "cuda"
-    batch_size: int = 64
-    num_workers: int = 8
-    amp: bool = True
 
     def __post_init__(self) -> None:
+        # In finetuned mode, the model repo that carries probe-fused weights is the
+        # finetuned one. Only auto-swap when the caller hasn't overridden the repo;
+        # otherwise respect the explicit override.
         if self.mode == "finetuned" and self.episode.model_repo == DEFAULT_PRETRAINED_REPO:
             self.episode = EpisodeConfig(
                 model_repo=DEFAULT_FINETUNED_REPO,
                 **{k: getattr(self.episode, k) for k in EpisodeConfig.__dataclass_fields__ if k != "model_repo"},
             )
+
+    def run(self) -> Path:
+        return evaluate(self)
 
 
 def _load_classifier(cfg: Config, device: torch.device) -> CanViTForImageClassification:

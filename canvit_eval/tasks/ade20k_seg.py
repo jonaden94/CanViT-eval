@@ -2,10 +2,10 @@
 
 Two entry points, matching the two model families we compare:
 
-    run_canvit(...)   — multi-timestep CanViT episode, mIoU per timestep.
-    run_dinov3(...)   — single passive forward pass of a DINOv3 teacher, mIoU at t=0.
+    CanViTConfig.run()   → multi-timestep CanViT episode, mIoU per timestep.
+    DINOv3Config.run()   → single passive forward pass of a DINOv3 teacher, mIoU at t=0.
 
-Both write .pt files with the same schema (`mious: {t0: ..., ...}` + metadata),
+Both save .pt files with the same schema (`mious: {t0: ..., ...}` + metadata)
 so the downstream export pipeline is model-agnostic.
 """
 
@@ -30,45 +30,41 @@ from tqdm import tqdm
 
 from canvit_eval.config import EpisodeConfig, TEACHER_REPO, ade20k_root
 from canvit_eval.runner import eval_batches
+from canvit_eval.tasks.base import TaskConfig
 
 log = logging.getLogger(__name__)
 
 
-@dataclass
-class CanViTConfig:
-    """Config for the CanViT ADE20K seg eval. Probe and backbone are pulled
-    from HF Hub inside run_canvit(); the caller supplies repo IDs via
-    --probe-repo and --episode.model-repo."""
+@dataclass(kw_only=True)
+class ADE20kBaseConfig(TaskConfig):
+    """ADE20K-specific fields shared by both model paths."""
     probe_repo: str
+    ade20k_root: Path = field(default_factory=ade20k_root)
+    scene_size: int = 512
+    resize_mode: ResizeMode = "squish"
+
+
+@dataclass(kw_only=True)
+class CanViTConfig(ADE20kBaseConfig):
+    """ADE20K seg with a CanViT backbone — multi-timestep episode."""
+    output: Path = Path("results/ade20k_seg.pt")
     episode: EpisodeConfig = field(default_factory=EpisodeConfig)
-    ade20k_root: Path = field(default_factory=ade20k_root)
+
+    def run(self) -> Path:
+        return run_canvit(self)
+
+
+@dataclass(kw_only=True)
+class DINOv3Config(ADE20kBaseConfig):
+    """ADE20K seg with a DINOv3 backbone — single passive forward pass."""
     output: Path = Path("results/ade20k_seg.pt")
-    scene_size: int = 512
-    resize_mode: ResizeMode = "squish"
-    device: str = "cuda"
-    batch_size: int = 32
-    num_workers: int = 8
-    amp: bool = True
-
-
-@dataclass
-class DINOv3Config:
-    """Config for the passive DINOv3 baseline. No episode — single forward pass
-    at `eval_resolution` px."""
-    probe_repo: str
+    eval_resolution: int
+    """Resolution the probe was trained at (e.g. 128, 192, 512). Teacher runs at this size,
+    NOT at scene_size. Required — a mismatch silently degrades mIoU so there's no default."""
     teacher_repo: str = TEACHER_REPO
-    eval_resolution: int = 512
-    ade20k_root: Path = field(default_factory=ade20k_root)
-    output: Path = Path("results/ade20k_seg.pt")
-    scene_size: int = 512
-    resize_mode: ResizeMode = "squish"
-    device: str = "cuda"
-    batch_size: int = 32
-    num_workers: int = 8
-    amp: bool = True
 
 
-def _loader(cfg: CanViTConfig | DINOv3Config) -> DataLoader:
+def _loader(cfg: ADE20kBaseConfig) -> DataLoader:
     img_tf, mask_tf = make_val_transforms(cfg.scene_size, cfg.resize_mode)
     dataset = ADE20kDataset(
         root=cfg.ade20k_root, split="validation",
@@ -84,7 +80,7 @@ def _update_miou(
     acc: mIoUAccumulator, probe: SegmentationProbeType, features: Tensor, masks: Tensor,
 ) -> None:
     """Run probe on features, interpolate to mask size if needed, accumulate IoU.
-    No host syncs: argmax on GPU, mask already on GPU."""
+    Argmax + mask stay on GPU; `acc.update` itself avoids syncs."""
     logits = probe(features.float())
     if logits.shape[-1] != masks.shape[-1]:
         logits = F.interpolate(logits, size=masks.shape[-2:], mode="bilinear", align_corners=False)
@@ -103,11 +99,12 @@ def _save(output: Path, mious: dict[str, float], cfg: object, extra_meta: dict, 
 
 
 def run_canvit(cfg: CanViTConfig) -> Path:
-    """CanViT ADE20K eval: T-step episode, mIoU per timestep.
+    """CanViT ADE20K: T-step episode, mIoU accumulator per timestep.
 
-    At each step, pull canvas state → get_spatial → probe → mIoU. No .item()
-    inside the episode loop to avoid GPU syncs — accumulators keep tensors
-    on device.
+    Per-batch work stays on GPU — `acc.update(argmax, masks)` adds to the
+    accumulator without a sync. The only host syncs happen in the final
+    `acc.compute()` loop after the full dataset is processed, producing T
+    floats total.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     device = torch.device(cfg.device)
@@ -141,8 +138,6 @@ def run_canvit(cfg: CanViTConfig) -> Path:
             spatial = seg.canvit.get_spatial(step.state.canvas).view(B, canvas_grid, canvas_grid, -1)
             _update_miou(accs[step.t], probe, spatial, masks)
 
-    # Single compute() per accumulator at the end — these .item() calls happen
-    # exactly T times total (not per batch), one GPU→CPU sync after all work is done.
     mious = {f"t{t}": acc.compute() for t, acc in enumerate(accs)}
     wall = time.monotonic() - t_start
     _save(cfg.output, mious, cfg, {
@@ -157,12 +152,7 @@ def run_canvit(cfg: CanViTConfig) -> Path:
 
 
 def run_dinov3(cfg: DINOv3Config) -> Path:
-    """DINOv3 passive ADE20K eval: single forward pass, mIoU at t=0 only.
-
-    No episode structure — this is the passive-vision baseline. Teacher runs
-    at cfg.eval_resolution (the resolution its probe was trained at), NOT at
-    cfg.scene_size.
-    """
+    """DINOv3 passive ADE20K: single forward pass at cfg.eval_resolution, mIoU at t=0."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     device = torch.device(cfg.device)
 
