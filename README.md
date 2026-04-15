@@ -39,7 +39,8 @@ uv run python -m canvit_eval reconstruction \
 ### Batch — the full paper matrix
 
 ```bash
-# Full paper matrix (5 seeds, sequential, single GPU):
+# Full paper matrix (5 runs per stochastic policy, sequential, single GPU).
+# No explicit seed setting — stochastic policies draw from default RNG.
 uv run python -m canvit_eval.batch --n-runs 5
 
 # Filter:
@@ -56,19 +57,20 @@ uv run python -m canvit_eval.batch --dry-run
 
 `--skip-existing` matches prior outputs by structural identity (task, model,
 policy, scene, grid, run_idx) via a timestamp-agnostic glob, so crashed
-batches resume cleanly AND seed counts pool over time:
+batches resume cleanly AND run counts pool over time:
 
 ```bash
 # Day 1: preliminary n=1 on a new grid.
 uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 9 --include-extra-grids --n-runs 1
 
-# Day 2: add 4 more seeds without rerunning r=0. Export bootstraps over all 5.
+# Day 2: add 4 more runs without rerunning r=0. Export bootstraps over all 5.
 uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 9 --include-extra-grids --n-runs 5 --skip-existing
 ```
 
-Each run writes `{stem}_{UTC_ts}_r{run}.pt`; the paper's export
-(`export/ade20k_seg.py:_latest_per_run`) keeps the newest timestamp per run_idx,
-so reruns don't contaminate old seeds if the config is unchanged.
+Each run writes `{stem}_{UTC_ts}_r{run}.pt`. The paper's export preserves
+all runs (even same run_idx across different timestamps) and logs per-file
+provenance (timestamp, git_commit, model_repo, final-t mIoU) — see
+`export/ade20k_seg.py:_build_policy_curves` for the audit line format.
 
 ## Architecture
 

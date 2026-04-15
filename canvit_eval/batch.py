@@ -12,7 +12,10 @@ when the prior run happened.
 
 Usage:
 
-    # Full paper matrix, 5 seeds, single GPU, sequential:
+    # Full paper matrix, 5 runs per stochastic policy, single GPU, sequential.
+    # "Runs" = independent re-invocations; no explicit seeding is done, so
+    # stochastic policies (random, full_then_random) sample from the default
+    # RNG state. Deterministic policies trimmed to n=1 via DETERMINISTIC.
     uv run python -m canvit_eval.batch --n-runs 5
 
     # Resume: skip any job whose structural output already exists on disk:
