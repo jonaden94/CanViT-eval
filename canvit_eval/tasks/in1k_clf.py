@@ -32,6 +32,9 @@ class Config(TaskConfig):
     output: Path = Path("results/in1k_clf.pt")
     batch_size: int = 64
     mode: Literal["finetuned", "frozen"] = "finetuned"
+    scene_size: int = 512
+    """Image-space resolution (input images are resized to scene_size × scene_size).
+    Tracked alongside canvas_grid so downstream exporters can group runs by (scene, grid)."""
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(canvas_grid=32))
     probe_repo: str = DEFAULT_PROBE_REPO
     val_dir: Path = field(default_factory=imagenet_val_dir)
@@ -74,7 +77,11 @@ def evaluate(cfg: Config) -> Path:
 
     clf = _load_classifier(cfg, device)
 
-    img_size = canvas_grid * clf.canvit.backbone.patch_size_px
+    patch_size_px = clf.canvit.backbone.patch_size_px
+    assert cfg.scene_size % patch_size_px == 0, (
+        f"scene_size={cfg.scene_size} must be divisible by patch_size_px={patch_size_px}"
+    )
+    img_size = cfg.scene_size
     dataset = make_in1k_dataset(cfg.val_dir, img_size)
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,
                         num_workers=cfg.num_workers, pin_memory=True)

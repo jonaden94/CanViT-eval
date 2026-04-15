@@ -122,6 +122,26 @@ EXTRA_ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 24, 32),
 ]
 
+# IN1K classification sweep — (scene_size, canvas_grid) pairs. Natural coupling: scene = grid * 16.
+#
+# IN1K probes are canvas-grid-agnostic: the classification head operates on recurrent_cls[:, 0]
+# (a single CLS token of dim D), not on spatial tiles. Same fused head weights work at any
+# grid. The pretraining standardizer used during fusion is selected per-grid, but the downstream
+# linear classifier is unchanged.
+#
+# EXTRA_IN1K_RESOLUTIONS feeds the "canvas size is irrelevant for IN1K" paper claim
+# (contrast with ADE20K where canvas grid materially affects mIoU). Finetuned mode is baseline-
+# only — the model was finetuned at s=512/c=32; varying inference resolution for finetuned
+# weights is a separate (not-the-paper-claim) question.
+IN1K_RESOLUTIONS: list[tuple[int, int]] = [
+    (512, 32),
+]
+EXTRA_IN1K_RESOLUTIONS: list[tuple[int, int]] = [
+    (128, 8),
+    (256, 16),
+    (1024, 64),
+]
+
 # DINOv3 passive baselines: 2 variants × 7 resolutions = 14 evals.
 # 768/1024 px DINOv3 probes would be required to match CanViT c48@s512 and c64@s1024 data
 # points; not currently trained (would need a different training machine).
@@ -278,21 +298,30 @@ def _ade20k_seg_jobs(
     return jobs
 
 
-def _in1k_clf_jobs(out_dir: Path, *, n_runs: int, n_timesteps: int, ts: str, mode: Literal["frozen", "finetuned"]) -> list[EvalJob]:
+def _in1k_clf_jobs(
+    out_dir: Path, *, n_runs: int, n_timesteps: int, ts: str,
+    mode: Literal["frozen", "finetuned"],
+    resolutions: list[tuple[int, int]],
+) -> list[EvalJob]:
     jobs: list[EvalJob] = []
     d = out_dir / f"in1k_clf_{mode}"
-    for policy in IN1K_POLICIES:
-        for run in range(_n_runs_for(policy, n_runs)):
-            stem = f"in1k_{policy}"
-            out = d / f"{stem}_{ts}_r{run}.pt"
-            jobs.append(EvalJob(
-                task="in1k-clf",
-                args=["in1k-clf", "--mode", mode,
-                      "--episode.policy", policy, "--episode.n-timesteps", str(n_timesteps),
-                      "--output", str(out)],
-                output=out, output_stem=f"{stem}_",
-                model=f"canvit-{mode}", policy=policy, run_idx=run,
-            ))
+    for scene, grid in resolutions:
+        for policy in IN1K_POLICIES:
+            for run in range(_n_runs_for(policy, n_runs)):
+                stem = f"in1k_{policy}_s{scene}_c{grid}"
+                out = d / f"{stem}_{ts}_r{run}.pt"
+                jobs.append(EvalJob(
+                    task="in1k-clf",
+                    args=["in1k-clf", "--mode", mode,
+                          "--scene-size", str(scene),
+                          "--episode.policy", policy,
+                          "--episode.canvas-grid", str(grid),
+                          "--episode.n-timesteps", str(n_timesteps),
+                          "--output", str(out)],
+                    output=out, output_stem=f"{stem}_",
+                    model=f"canvit-{mode}", policy=policy,
+                    scene_size=scene, canvas_grid=grid, run_idx=run,
+                ))
     return jobs
 
 
@@ -331,8 +360,13 @@ def build_eval_matrix(
             ade20k_res=ade20k_res, canvas_grids=canvas_grids,
         ))
     if "in1k-clf" in tasks:
-        jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts, mode="frozen"))
-        jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts, mode="finetuned"))
+        # Frozen mode sweeps extra resolutions for the "canvas size is irrelevant for IN1K"
+        # paper claim; finetuned mode is baseline-only (see EXTRA_IN1K_RESOLUTIONS comment).
+        frozen_res = IN1K_RESOLUTIONS + (EXTRA_IN1K_RESOLUTIONS if include_extra_grids else [])
+        jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts,
+                                    mode="frozen", resolutions=frozen_res))
+        jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts,
+                                    mode="finetuned", resolutions=IN1K_RESOLUTIONS))
     if "recon" in tasks:
         jobs.extend(_recon_jobs(out_dir, n_runs=n_runs, ts=ts))
     return jobs
@@ -370,7 +404,9 @@ class Args:
     skip_existing: bool = False
     """Skip jobs whose structural output already exists (timestamp-agnostic glob match)."""
     include_extra_grids: bool = False
-    """Include c9/10/12/24 @ s512 probes in the ADE20K matrix (default: paper-v1 set only)."""
+    """Include extra canvas grids beyond the paper-v1 set.
+       ADE20K: adds c8..c24 at s=512. IN1K frozen: adds c8/c16/c64 at matched scene sizes
+       (finetuned stays at c=32 — it was specialized there)."""
     policies: list[str] = field(default_factory=list)
     """Filter to these policies (empty = all). Applies to jobs that carry a policy field."""
     grids: list[int] = field(default_factory=list)

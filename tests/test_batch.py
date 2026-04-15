@@ -13,6 +13,8 @@ from canvit_eval.batch import (
     DINOV3_RESOLUTIONS,
     DINOV3_VARIANTS,
     EXTRA_CANVAS_GRIDS,
+    EXTRA_IN1K_RESOLUTIONS,
+    IN1K_RESOLUTIONS,
     build_eval_matrix,
     filter_jobs,
 )
@@ -25,7 +27,8 @@ _N_CANVIT_POLICY_N1 = len(ADE20K_RESOLUTIONS) * len(ALL_POLICIES)
 _N_DINOV3 = len(DINOV3_VARIANTS) * len(DINOV3_RESOLUTIONS)
 _N_CANVIT_T0 = len(CANVAS_GRIDS)
 _N_ADE20K_N1 = _N_CANVIT_POLICY_N1 + _N_DINOV3 + _N_CANVIT_T0  # 12 + 14 + 4 = 30
-_N_IN1K_N1_BOTH_MODES = 2 * 4  # 2 modes × 4 policies, all non-deterministic in IN1K_POLICIES
+_N_IN1K_POLICIES = 4  # IN1K_POLICIES: C2F, F2C, full_then_random, random — all non-deterministic
+_N_IN1K_N1_BOTH_MODES = len(IN1K_RESOLUTIONS) * _N_IN1K_POLICIES * 2  # baseline: frozen + finetuned
 _N_RECON_N1 = len(ABLATION_REPOS)
 
 
@@ -311,3 +314,73 @@ def test_eval_job_structural_tuple_is_unique():
     keys = [(j.task, j.model, j.policy, j.scene_size, j.canvas_grid, j.input_px, j.run_idx)
             for j in jobs]
     assert len(keys) == len(set(keys)), "structural-identity tuple not unique across jobs"
+
+
+# ── IN1K canvas-resolution sweep tests ──────────────────────────────────
+
+
+def test_in1k_resolutions_disjoint():
+    """Baseline vs extras must not overlap — otherwise include-extra-grids would
+    duplicate baseline jobs."""
+    assert not (set(IN1K_RESOLUTIONS) & set(EXTRA_IN1K_RESOLUTIONS))
+
+
+def test_in1k_filename_encodes_scene_and_grid():
+    """IN1K outputs must carry s{scene}_c{grid} in the filename so the exporter
+    can group runs by (policy, scene, grid)."""
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["in1k-clf"])
+    in1k = [j for j in jobs if j.task == "in1k-clf"]
+    assert in1k, "no in1k jobs"
+    for j in in1k:
+        assert j.scene_size is not None and j.canvas_grid is not None
+        assert f"s{j.scene_size}_c{j.canvas_grid}" in j.output.name, (
+            f"missing resolution fields in {j.output.name}"
+        )
+
+
+def test_in1k_jobs_carry_structural_fields():
+    """in1k jobs must populate scene_size and canvas_grid (were None pre-refactor)."""
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["in1k-clf"])
+    for j in jobs:
+        if j.task == "in1k-clf":
+            assert j.scene_size is not None
+            assert j.canvas_grid is not None
+
+
+def test_in1k_include_extras_sweeps_frozen_only():
+    """Extra IN1K resolutions should expand frozen-mode jobs but NOT finetuned —
+    the finetuned weights were specialized at s=512/c=32 so off-grid inference is
+    a different (non-paper-claim) question."""
+    base = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["in1k-clf"])
+    ext = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21,
+                            tasks=["in1k-clf"], include_extra_grids=True)
+
+    base_frozen = [j for j in base if j.model == "canvit-frozen"]
+    ext_frozen = [j for j in ext if j.model == "canvit-frozen"]
+    base_ft = [j for j in base if j.model == "canvit-finetuned"]
+    ext_ft = [j for j in ext if j.model == "canvit-finetuned"]
+
+    # Frozen expands; finetuned is unchanged.
+    assert len(ext_frozen) > len(base_frozen)
+    assert len(ext_ft) == len(base_ft)
+
+    # Extras cover exactly EXTRA_IN1K_RESOLUTIONS × 4 policies.
+    frozen_extra = {(j.scene_size, j.canvas_grid) for j in ext_frozen
+                    if (j.scene_size, j.canvas_grid) not in set(IN1K_RESOLUTIONS)}
+    assert frozen_extra == set(EXTRA_IN1K_RESOLUTIONS)
+
+
+def test_in1k_scene_and_grid_appear_in_cli_args():
+    """The CLI must receive --scene-size and --episode.canvas-grid so the task picks
+    up the right resolution; otherwise it would silently fall back to defaults."""
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21,
+                             tasks=["in1k-clf"], include_extra_grids=True)
+    for j in jobs:
+        if j.task != "in1k-clf":
+            continue
+        assert "--scene-size" in j.args
+        idx = j.args.index("--scene-size")
+        assert j.args[idx + 1] == str(j.scene_size)
+        assert "--episode.canvas-grid" in j.args
+        idx = j.args.index("--episode.canvas-grid")
+        assert j.args[idx + 1] == str(j.canvas_grid)
