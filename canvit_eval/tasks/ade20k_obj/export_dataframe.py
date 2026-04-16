@@ -15,8 +15,8 @@ Output columns:
     class_name   str   primary class name (from ade20k_df_flat.parquet)
 
 Usage:
-    uv run python canvit_eval/tasks/ade20k_obj/dv3_ade20k_per_image.py
-    uv run python canvit_eval/tasks/ade20k_obj/dv3_ade20k_per_image.py --resolutions 512
+    uv run python canvit_eval/tasks/ade20k_obj/export_dataframe.py
+    uv run python canvit_eval/tasks/ade20k_obj/export_dataframe.py --resolutions 512
 """
 
 import logging

@@ -9,8 +9,8 @@ and produces:
 Output: output/dv3_obj_size.{svg,png}
 
 Usage:
-    uv run python canvit_eval/tasks/ade20k_obj/dv3_obj_size.py
-    uv run python canvit_eval/tasks/ade20k_obj/dv3_obj_size.py --n-boot 500 --output output/fig
+    uv run python canvit_eval/tasks/ade20k_obj/plot.py
+    uv run python canvit_eval/tasks/ade20k_obj/plot.py --n-boot 500 --output output/fig
 """
 
 from dataclasses import dataclass
