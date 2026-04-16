@@ -14,6 +14,7 @@ dependencies = [
     "huggingface-hub>=0.20.0",
     "safetensors>=0.4.0",
     "transformers>=4.50.0",
+    "statsmodels>=0.14.6",
 ]
 
 [build-system]
@@ -33,6 +34,9 @@ dev = [
     "pypatree>=0.4.0",
     "ruff>=0.14.14",
     "pytest-cov>=7.0.0",
+    "pandas>=3.0.2",
+    "pyarrow>=23.0.1",
+    "matplotlib>=3.10.8",
 ]
 
 [tool.pytest.ini_options]
