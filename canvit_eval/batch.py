@@ -136,9 +136,9 @@ IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 32, 64),
 ]
 EXTRA_IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
-    (512, 8, 64),      # 64 canvas tokens — lightweight
-    (512, 16, 64),     # 256 canvas tokens
-    (512, 64, 8),      # 4096 canvas tokens — conservative batch size
+    (512, 8, 64),      # 8×8 canvas patches
+    (512, 16, 64),     # 16×16 canvas patches
+    (512, 64, 8),      # 64×64 canvas patches — conservative batch size
 ]
 
 # DINOv3 passive baselines: 2 variants × 7 resolutions = 14 evals.
