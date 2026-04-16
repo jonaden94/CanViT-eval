@@ -1,16 +1,16 @@
 """Plot DINOv3 per-class IoU vs object size (% area) by resolution.
 
-Reads results/dv3_ade20k_per_image.parquet produced by export/dv3_ade20k_per_image.py
+Reads output/dv3_ade20k_per_image.parquet produced by dv3_ade20k_per_image.py
 and produces:
   Panel A — LOWESS IoU vs object area with 95% bootstrap CI, one band per resolution
   Panel B — per-resolution scatter with LOWESS overlay
   Panel C — LOWESS of 512px − 128px IoU difference with 95% bootstrap CI
 
-Output: results/dv3_obj_size.{svg,png}
+Output: output/dv3_obj_size.{svg,png}
 
 Usage:
-    uv run python plotting/dv3_obj_size.py
-    uv run python plotting/dv3_obj_size.py --n-boot 500 --output results/fig
+    uv run python canvit_eval/tasks/ade20k_obj/dv3_obj_size.py
+    uv run python canvit_eval/tasks/ade20k_obj/dv3_obj_size.py --n-boot 500 --output output/fig
 """
 
 from dataclasses import dataclass
@@ -26,8 +26,8 @@ from statsmodels.nonparametric.smoothers_lowess import lowess as sm_lowess
 
 @dataclass
 class Config:
-    input: Path = Path("results/dv3_ade20k_per_image.parquet")
-    output: Path = Path("results/dv3_obj_size")
+    input: Path = Path("output/dv3_ade20k_per_image.parquet")
+    output: Path = Path("output/dv3_obj_size")
     frac: float = 0.25
     """LOWESS bandwidth fraction."""
     n_boot: int = 200

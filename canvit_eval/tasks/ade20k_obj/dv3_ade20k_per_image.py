@@ -15,8 +15,8 @@ Output columns:
     class_name   str   primary class name (from ade20k_df_flat.parquet)
 
 Usage:
-    uv run python export/dv3_ade20k_per_image.py
-    uv run python export/dv3_ade20k_per_image.py --resolutions 512
+    uv run python canvit_eval/tasks/ade20k_obj/dv3_ade20k_per_image.py
+    uv run python canvit_eval/tasks/ade20k_obj/dv3_ade20k_per_image.py --resolutions 512
 """
 
 import logging
@@ -34,7 +34,7 @@ import tyro
 log = logging.getLogger(__name__)
 
 PROBE_REPO_TEMPLATE = "canvit/probe-ade20k-40k-dv3b-{resolution}px"
-DEFAULT_EXPORTS_DIR = Path(__file__).parents[2] / "explore-ade20k" / "outputs"
+DEFAULT_EXPORTS_DIR = Path(__file__).parents[4] / "explore-ade20k" / "outputs"
 DEFAULT_AREA_PARQUET = DEFAULT_EXPORTS_DIR / "ade20k_df_flat.parquet"
 
 
@@ -46,7 +46,7 @@ class Config:
     """Path to ade20k_df_flat.parquet with (image_idx, class_idx, area, class_name)."""
     resolutions: list[int] = field(default_factory=lambda: [128, 144, 160, 192, 256, 384, 512])
     """Eval resolutions to process. Must have a matching features.pt file."""
-    output: Path = Path("results/dv3_ade20k_per_image.parquet")
+    output: Path = Path("output/dv3_ade20k_per_image.parquet")
     batch_size: int = 32
     device: str = "auto"
 
