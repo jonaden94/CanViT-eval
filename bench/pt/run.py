@@ -240,8 +240,10 @@ def _build_canvit(args: Args, device: torch.device) -> Callable[[], None]:
                          device=device, dtype=_weight_dtype(args))
     vp = Viewpoint.full_scene(batch_size=bs, device=device)
     glimpse = sample_at_viewpoint(spatial=image, viewpoint=vp, glimpse_size_px=CANVIT_GLIMPSE_PX)
-    log.info("  glimpse: %dpx (64 patches), canvas: %dx%d (%d tokens)",
-             CANVIT_GLIMPSE_PX, canvas_grid, canvas_grid, canvas_grid ** 2)
+    n_glimpse_patches = (CANVIT_GLIMPSE_PX // 16) ** 2
+    n_canvas_patches = canvas_grid ** 2
+    log.info("  glimpse: %dpx (%d patches), canvas: %dx%d (%d patches)",
+             CANVIT_GLIMPSE_PX, n_glimpse_patches, canvas_grid, canvas_grid, n_canvas_patches)
 
     def run(glimpse=glimpse, vp=vp) -> None:
         state = model.init_state(batch_size=bs, canvas_grid_size=canvas_grid)
