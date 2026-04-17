@@ -173,30 +173,49 @@ def build_matrix(
 # ── CLI ──────────────────────────────────────────────────────────────────
 
 
+Profile = Literal["fast", "full"]
+
+PROFILES: dict[Profile, dict] = {
+    "fast": {"passes": 1, "time_budget_s": 10.0, "max_iters": 100},
+    "full": {"passes": 3, "time_budget_s": 60.0, "max_iters": 500},
+}
+
+
 @dataclass
 class Args:
+    profile: Profile = "fast"
+    """fast: quick paper-figure bench (~5 min full matrix).
+    full: distributional bench (~80 min, 3 passes for CI analysis).
+    Individual flags below override the profile's values when set."""
     models: list[ModelName] = field(default_factory=lambda: ["canvit", "dinov3-vitb16", "dinov3-vits16"])
-    """Include DINOv3 ViT-S by default: shows the exponential scene-size
-    hit applies to smaller backbones too, not just ViT-B."""
+    """Default includes DINOv3 ViT-S — shows scene-size cost hits
+    smaller backbones too, not just ViT-B."""
     cpu_scenes: list[int] = field(default_factory=lambda: [128, 256, 512, 1024])
     cpu_threads: list[int] = field(default_factory=list)
-    """CPU thread counts. Empty = auto from physical cores: {1, phys/4, phys/2, phys, logical}."""
+    """CPU thread counts. Empty = auto {1, physical_cores}."""
     cuda_scenes: list[int] = field(default_factory=lambda: [128, 256, 512, 1024, 2048])
     cuda_dtypes: list[Dtype] = field(default_factory=lambda: ["fp32", "amp-bf16"])
     cuda_compiled: bool = True
-    passes: int = 1
-    """Passes over the matrix. >1 repeats every cell N times with shuffled order per pass."""
-    time_budget_s: float = 60.0
-    max_iters: int = 500
+    passes: int | None = None
+    """Override profile passes count."""
+    time_budget_s: float | None = None
+    """Override profile time-budget per config."""
+    max_iters: int | None = None
+    """Override profile iteration cap per config."""
     warmup_iters: int = 3
     dry_run: bool = False
     skip_preflight: bool = False
     skip_gpu_for_cpu_jobs: bool = False
-    """Skip preflight's GPU idle check. Use when only running CPU cells."""
 
 
 def main(args: Args) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    preset = PROFILES[args.profile]
+    passes = args.passes if args.passes is not None else preset["passes"]
+    time_budget_s = args.time_budget_s if args.time_budget_s is not None else preset["time_budget_s"]
+    max_iters = args.max_iters if args.max_iters is not None else preset["max_iters"]
+    log.info(f"profile={args.profile}: passes={passes} time_budget_s={time_budget_s} max_iters={max_iters}")
 
     if not args.cpu_threads:
         phys = physical_cores()
@@ -211,9 +230,9 @@ def main(args: Args) -> None:
         models=args.models,
         cpu_scenes=args.cpu_scenes, cpu_threads=args.cpu_threads,
         cuda_scenes=args.cuda_scenes, cuda_dtypes=args.cuda_dtypes,
-        cuda_compiled=args.cuda_compiled, passes=args.passes,
+        cuda_compiled=args.cuda_compiled, passes=passes,
     )
-    log.info(f"{len(jobs)} jobs across {args.passes} pass(es).")
+    log.info(f"{len(jobs)} jobs across {passes} pass(es).")
 
     if args.dry_run:
         for j in jobs:
@@ -246,8 +265,8 @@ def main(args: Args) -> None:
         t0 = time.monotonic()
         log.info(f"[{i}/{len(jobs)}] RUN  {j.describe()}")
         cmd = [sys.executable, str(RUN_PY)] + j.args() + [
-            "--time-budget-s", str(args.time_budget_s),
-            "--max-iters", str(args.max_iters),
+            "--time-budget-s", str(time_budget_s),
+            "--max-iters", str(max_iters),
             "--warmup-iters", str(args.warmup_iters),
         ]
         rc = subprocess.call(cmd, env=child_env)
