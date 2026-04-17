@@ -200,9 +200,12 @@ def main(args: Args) -> None:
 
     if not args.cpu_threads:
         phys = physical_cores()
-        lg = logical_cores()
-        args.cpu_threads = sorted({1, max(1, phys // 4), max(1, phys // 2), phys, lg})
-        log.info(f"Auto cpu_threads = {args.cpu_threads} (physical={phys}, logical={lg})")
+        # Only the two configs that matter: single-threaded baseline and
+        # physical-core count. Intermediate thread counts and SMT-extending
+        # counts (beyond physical cores) don't represent deployment choices
+        # anyone would pick — they only interpolate between 1 and phys.
+        args.cpu_threads = sorted({1, phys})
+        log.info(f"Auto cpu_threads = {args.cpu_threads} (physical={phys})")
 
     jobs = build_matrix(
         models=args.models,
@@ -226,12 +229,12 @@ def main(args: Args) -> None:
             thresholds = IdleThresholds(max_gpu_util_pct=100, max_gpu_procs=10_000)
         preflight(thresholds)
 
-    # Pin the torch.compile cache to a persistent path so the per-config
-    # subprocess model amortizes compile across runs. Default /tmp is wiped
-    # across reboots and on /tmp cleanup — observed empty on crockett
-    # despite daily CUDA-compile bench runs, so every run paid full cold
-    # compile (~15-20s for CanViT CUDA). With this cache pinned, same-shape
-    # re-runs hit the cache.
+    # Move the Inductor cache from /tmp/torchinductor_$USER (default) to a
+    # user-persistent path. The default location persists across processes,
+    # but /tmp is subject to systemd-tmpfiles cleanup by file age, so
+    # long-gap re-runs miss the cache and pay full cold compile (~15s CUDA).
+    # ~/.cache is user-scoped and not cleaned. Verified empirically on crockett
+    # 2026-04-17: pass 0 cold compile 14.5s, pass 1 same-shape 2.1s.
     cache_dir = Path.home() / ".cache" / "torch" / "inductor"
     cache_dir.mkdir(parents=True, exist_ok=True)
     child_env = {**os.environ, "TORCHINDUCTOR_CACHE_DIR": str(cache_dir)}

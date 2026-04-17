@@ -84,9 +84,13 @@ DINOv3 HF path actually fullgraph-compile?).
 
 ## Compile cache
 
-`matrix.py` pins `TORCHINDUCTOR_CACHE_DIR` to `~/.cache/torch/inductor`
-for every spawned subprocess. Default is `/tmp/torchinductor_$USER`
-which is wiped on reboot / /tmp cleanup, so subprocess-per-config runs
-were paying the full ~15–20 s cold CUDA compile every time. With the
-persistent pin, same-shape re-runs hit the cache and compile drops to
-< 1 s on the second invocation.
+`matrix.py` sets `TORCHINDUCTOR_CACHE_DIR=~/.cache/torch/inductor`
+on every spawned subprocess. The default is `/tmp/torchinductor_$USER`,
+which DOES persist across processes (per the
+[torch.compile caching docs](https://docs.pytorch.org/tutorials/recipes/torch_compile_caching_configuration_tutorial.html)) —
+but `/tmp` is subject to systemd-tmpfiles cleanup by file age on Linux,
+so long-gap re-runs can still miss cache and pay the full ~15 s cold
+compile. Moving to `~/.cache` gives user-scoped, non-cleaned storage.
+
+Verified empirically on crockett 2026-04-17: pass 0 cold compile 14.5 s,
+pass 1 same-shape 2.1 s (~7× speedup).
