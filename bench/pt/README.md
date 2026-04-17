@@ -81,3 +81,12 @@ DINOv3 uses `torch.compile(teacher.model)` with attribute replacement)
 and neither passes `fullgraph=True`, despite the paper appendix claiming
 fullgraph. Pending unified compile API + fullgraph audit (will the
 DINOv3 HF path actually fullgraph-compile?).
+
+## Compile cache
+
+`matrix.py` pins `TORCHINDUCTOR_CACHE_DIR` to `~/.cache/torch/inductor`
+for every spawned subprocess. Default is `/tmp/torchinductor_$USER`
+which is wiped on reboot / /tmp cleanup, so subprocess-per-config runs
+were paying the full ~15–20 s cold CUDA compile every time. With the
+persistent pin, same-shape re-runs hit the cache and compile drops to
+< 1 s on the second invocation.

@@ -228,6 +228,17 @@ def main(args: Args) -> None:
             thresholds = IdleThresholds(max_gpu_util_pct=100, max_gpu_procs=10_000)
         preflight(thresholds)
 
+    # Pin the torch.compile cache to a persistent path so the per-config
+    # subprocess model amortizes compile across runs. Default /tmp is wiped
+    # across reboots and on /tmp cleanup — observed empty on crockett
+    # despite daily CUDA-compile bench runs, so every run paid full cold
+    # compile (~15-20s for CanViT CUDA). With this cache pinned, same-shape
+    # re-runs hit the cache.
+    cache_dir = Path.home() / ".cache" / "torch" / "inductor"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    child_env = {**os.environ, "TORCHINDUCTOR_CACHE_DIR": str(cache_dir)}
+    log.info(f"TORCHINDUCTOR_CACHE_DIR = {cache_dir}")
+
     done = failed = 0
     total = time.monotonic()
     for i, j in enumerate(jobs, 1):
@@ -238,7 +249,7 @@ def main(args: Args) -> None:
             "--max-iters", str(args.max_iters),
             "--warmup-iters", str(args.warmup_iters),
         ]
-        rc = subprocess.call(cmd)
+        rc = subprocess.call(cmd, env=child_env)
         dt = time.monotonic() - t0
         if rc != 0:
             log.error(f"[{i}/{len(jobs)}] FAIL ({dt:.1f}s, exit {rc})")
