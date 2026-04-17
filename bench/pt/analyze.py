@@ -1,19 +1,10 @@
-"""Distributional analysis of bench/pt/run.py JSONL output.
+"""Distributional stats for bench/pt/run.py JSONL output.
 
-Loads one or more bench_*.jsonl files, groups by experimental condition, and
-reports median / min / p5 / p95 / p99 / std / mean with bootstrap 95% CIs on
-the median and min. Flags:
+Groups by (model, device, scene, cg, dtype, compiled, threads, batch).
+Reports median/p5/p95/p99/std with bootstrap CIs, flags pairwise
+thread-count regressions and per-run time drift.
 
-- pairwise regressions across groups where bootstrap CIs are disjoint;
-- time-local contention: iter latency correlates with wall_s (rank
-  correlation against iteration ordering), indicating drift during the run.
-
-Purpose: answer "are the observed thread-count regressions in hw_bench.json
-real or spurious?" without cherry-picking `min_ms`.
-
-Usage:
-    uv run python bench/pt/analyze.py --glob 'bench/pt/results/*20260417*.jsonl'
-    uv run python bench/pt/analyze.py --files f1.jsonl f2.jsonl
+    uv run python bench/pt/analyze.py --glob 'bench/pt/results/*.jsonl'
 """
 
 import glob as glob_mod
@@ -180,20 +171,12 @@ def group_runs(runs: Iterable[Run]) -> dict[tuple, GroupStats]:
 
 
 def time_drift_stats(run: Run) -> dict:
-    """Check whether iter latency correlates with iteration order.
-
-    Spearman rank correlation between iteration index and latency. Strong
-    positive = latency slows over time (thermal / accumulating contention);
-    strong negative = speeds up (caches warming, though warmup should have
-    absorbed this); near zero = steady state. Threshold |rho| > 0.3 for flag.
-    """
+    """Spearman rho of iter latency vs iter index. Positive = slows over time."""
     n = int(run.iter_ms.size)
     if n < 10:
         return {"n": n, "spearman_rho": None}
-    # Inline spearman: Pearson correlation on ranks.
-    idx = np.arange(n)
     ranks = np.argsort(np.argsort(run.iter_ms))
-    rho = float(np.corrcoef(idx, ranks)[0, 1])
+    rho = float(np.corrcoef(np.arange(n), ranks)[0, 1])
     return {"n": n, "spearman_rho": rho}
 
 
