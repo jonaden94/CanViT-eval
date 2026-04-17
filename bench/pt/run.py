@@ -236,7 +236,7 @@ def _build_canvit(args: Args, device: torch.device) -> Callable[[], None]:
     log.info("  %.1fM params", n_params / 1e6)
 
     if args.compiled:
-        log.info("  torch.compile (fullgraph)...")
+        log.info("  torch.compile...")
         t0 = time.perf_counter()
         model.compile()
         log.info("  registered in %.1fs", time.perf_counter() - t0)
