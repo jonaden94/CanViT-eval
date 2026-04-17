@@ -26,7 +26,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Literal
 
 import tyro
 
@@ -78,7 +78,7 @@ def preflight(t: IdleThresholds = IdleThresholds()) -> None:
         procs_csv = subprocess.check_output(
             ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"],
             text=True).strip()
-        n_procs = len([l for l in procs_csv.splitlines() if l.strip()])
+        n_procs = len([line for line in procs_csv.splitlines() if line.strip()])
         log.info(f"GPU: util={util}% procs={n_procs}")
         if util > t.max_gpu_util_pct or n_procs > t.max_gpu_procs:
             raise RuntimeError(f"GPU busy (util={util}% procs={n_procs})")
@@ -161,8 +161,10 @@ def build_matrix(
 
     for p in range(passes):
         rng = random.Random(seed + p)
-        cpu_p = list(cpu_cells); rng.shuffle(cpu_p)
-        cuda_p = list(cuda_cells); rng.shuffle(cuda_p)
+        cpu_p = list(cpu_cells)
+        rng.shuffle(cpu_p)
+        cuda_p = list(cuda_cells)
+        rng.shuffle(cuda_p)
         for m, s, t in cpu_p:
             jobs.append(BenchJob(m, "cpu", s, "fp32", t, False, p))
         for m, s, d in cuda_p:
