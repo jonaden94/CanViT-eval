@@ -202,7 +202,10 @@ class Args:
     """Override profile time-budget per config."""
     max_iters: int | None = None
     """Override profile iteration cap per config."""
-    warmup_iters: int = 3
+    min_iters: int | None = None
+    """Override profile minimum iterations (floor that beats time_budget)."""
+    warmup_iters: int | None = None
+    """Override profile warmup iterations."""
     dry_run: bool = False
     skip_preflight: bool = False
     skip_gpu_for_cpu_jobs: bool = False
@@ -215,7 +218,10 @@ def main(args: Args) -> None:
     passes = args.passes if args.passes is not None else preset["passes"]
     time_budget_s = args.time_budget_s if args.time_budget_s is not None else preset["time_budget_s"]
     max_iters = args.max_iters if args.max_iters is not None else preset["max_iters"]
-    log.info(f"profile={args.profile}: passes={passes} time_budget_s={time_budget_s} max_iters={max_iters}")
+    min_iters = args.min_iters if args.min_iters is not None else preset["min_iters"]
+    warmup_iters = args.warmup_iters if args.warmup_iters is not None else preset["warmup_iters"]
+    log.info(f"profile={args.profile}: passes={passes} time_budget_s={time_budget_s} "
+             f"max_iters={max_iters} min_iters={min_iters} warmup_iters={warmup_iters}")
 
     if not args.cpu_threads:
         phys = physical_cores()
@@ -267,7 +273,8 @@ def main(args: Args) -> None:
         cmd = [sys.executable, str(RUN_PY)] + j.args() + [
             "--time-budget-s", str(time_budget_s),
             "--max-iters", str(max_iters),
-            "--warmup-iters", str(args.warmup_iters),
+            "--min-iters", str(min_iters),
+            "--warmup-iters", str(warmup_iters),
         ]
         rc = subprocess.call(cmd, env=child_env)
         dt = time.monotonic() - t0
