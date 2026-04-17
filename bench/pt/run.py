@@ -72,12 +72,19 @@ class Args:
     batch_size: int = 1
     time_budget_s: float = 120.0
     """Measurement time budget in seconds (excludes model loading)."""
-    max_iters: int = 100
+    max_iters: int = 500
     """Stop after this many iterations even if time budget not exhausted."""
+    min_iters: int = 2
+    """Run at least this many measurement iterations, even if the time budget
+    is already exhausted. Guarantees a baseline sample count for slow cells
+    (e.g. DINOv3 CPU 1024px at ~13 s/iter would do 0 iters on a 10 s budget
+    without this floor)."""
     num_threads: int = 0
     """Number of CPU threads (0 = PyTorch default). Only relevant for --device cpu."""
-    warmup_iters: int = 3
-    """Warmup iterations before measurement (iter 0 triggers torch.compile)."""
+    warmup_iters: int = 1
+    """Warmup iterations before measurement. Default 1 because iter 0
+    triggers torch.compile on CUDA and primes caches on CPU — additional
+    warmup iters add no information. Raise for noisy environments."""
 
 
 def _weight_dtype(args: Args) -> torch.dtype:
@@ -113,20 +120,18 @@ def _sync(device: torch.device) -> None:
         torch.mps.synchronize()
 
 
-def _measure_peak_mb(device: torch.device, fn: Callable[[], None]) -> float | None:
+def _reset_peak_mem(device: torch.device) -> None:
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
-        _sync(device)
-        fn()
-        _sync(device)
+    elif device.type == "mps":
+        torch.mps.empty_cache()
+
+
+def _read_peak_mb(device: torch.device) -> float | None:
+    if device.type == "cuda":
         return round(torch.cuda.max_memory_allocated() / 1e6, 1)
     if device.type == "mps":
-        torch.mps.empty_cache()
-        _sync(device)
-        before = torch.mps.current_allocated_memory()
-        fn()
-        _sync(device)
-        return round((torch.mps.current_allocated_memory() - before) / 1e6, 1)
+        return round(torch.mps.current_allocated_memory() / 1e6, 1)
     return None
 
 
@@ -136,14 +141,17 @@ def _measure_streaming(
     meta: dict,
     time_budget_s: float,
     max_iters: int,
+    min_iters: int,
     warmup_iters: int,
     device: torch.device,
 ) -> None:
-    """Warmup (compilation), then measure fn repeatedly, streaming to JSONL.
+    """Warmup, then measure fn repeatedly, streaming to JSONL.
 
-    Phase 1: N_WARMUP warmup iterations (not timed against budget).
-             Iter 0 triggers torch.compile. Peak memory measured after warmup.
-    Phase 2: Timed iterations until time_budget_s or max_iters (whichever first).
+    Phase 1: warmup iterations (not timed against budget).
+             Iter 0 triggers torch.compile.
+    Phase 2: peak-memory counter reset, then timed iterations until
+             time_budget_s or max_iters (whichever first).
+             Peak memory recorded once at the end of the measurement phase.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
@@ -157,20 +165,13 @@ def _measure_streaming(
             fn()
             _sync(device)
             elapsed_ms = (time.perf_counter() - t0) * 1000
-            tag = "cold/compile" if w == 0 else "warmup"
-            log.info("  warmup %d (%s): %.1fms", w, tag, elapsed_ms)
+            log.info("  warmup %d: %.1fms", w, elapsed_ms)
             row = {"type": "warmup", "i": w, "ms": round(elapsed_ms, 4)}
             f.write(json.dumps(row) + "\n")
             f.flush()
 
-        # -- Peak memory (after warmup, before measurement) --
-        peak_mb = _measure_peak_mb(device, fn)
-        if peak_mb is not None:
-            log.info("  peak memory: %.1f MB", peak_mb)
-            f.write(json.dumps({"type": "peak_mem", "peak_mem_mb": peak_mb}) + "\n")
-            f.flush()
-
-        # -- Measurement phase (budget starts here) --
+        # -- Measurement phase: reset peak-mem counter, then loop --
+        _reset_peak_mem(device)
         i = 0
         wall_start = time.perf_counter()
         while True:
@@ -189,8 +190,15 @@ def _measure_streaming(
                 log.info("  iter %d: %.2fms (wall %.1fs)", i, elapsed_ms, wall_s)
 
             i += 1
-            if wall_s >= time_budget_s or i >= max_iters:
+            if i >= min_iters and (wall_s >= time_budget_s or i >= max_iters):
                 break
+
+        # -- Peak memory at the end of the measurement phase --
+        peak_mb = _read_peak_mb(device)
+        if peak_mb is not None:
+            log.info("  peak memory: %.1f MB", peak_mb)
+            f.write(json.dumps({"type": "peak_mem", "peak_mem_mb": peak_mb}) + "\n")
+            f.flush()
 
     log.info("  %d measured iterations in %.1fs -> %s", i, time.perf_counter() - wall_start, out_path)
 
@@ -229,7 +237,7 @@ def _build_canvit(args: Args, device: torch.device) -> Callable[[], None]:
     log.info("  %.1fM params", n_params / 1e6)
 
     if args.compiled:
-        log.info("  torch.compile (fullgraph)...")
+        log.info("  torch.compile...")
         t0 = time.perf_counter()
         model.compile()
         log.info("  registered in %.1fs", time.perf_counter() - t0)
@@ -240,8 +248,10 @@ def _build_canvit(args: Args, device: torch.device) -> Callable[[], None]:
                          device=device, dtype=_weight_dtype(args))
     vp = Viewpoint.full_scene(batch_size=bs, device=device)
     glimpse = sample_at_viewpoint(spatial=image, viewpoint=vp, glimpse_size_px=CANVIT_GLIMPSE_PX)
-    log.info("  glimpse: %dpx (64 patches), canvas: %dx%d (%d tokens)",
-             CANVIT_GLIMPSE_PX, canvas_grid, canvas_grid, canvas_grid ** 2)
+    n_glimpse_patches = (CANVIT_GLIMPSE_PX // 16) ** 2
+    n_canvas_patches = canvas_grid ** 2
+    log.info("  glimpse: %dpx (%d patches), canvas: %dx%d (%d patches)",
+             CANVIT_GLIMPSE_PX, n_glimpse_patches, canvas_grid, canvas_grid, n_canvas_patches)
 
     def run(glimpse=glimpse, vp=vp) -> None:
         state = model.init_state(batch_size=bs, canvas_grid_size=canvas_grid)
@@ -308,9 +318,12 @@ def main() -> None:
             meta["glimpse_px"] = CANVIT_GLIMPSE_PX
 
         out_path = RESULTS_DIR / f"bench_{rid}.jsonl"
-        log.info("Measuring for %.0fs...", args.time_budget_s)
+        log.info(
+            "Measuring (budget %.0fs, max_iters %d, min_iters %d)...",
+            args.time_budget_s, args.max_iters, args.min_iters,
+        )
         with _autocast(args, device):
-            _measure_streaming(fwd, out_path, meta, args.time_budget_s, args.max_iters, args.warmup_iters, device)
+            _measure_streaming(fwd, out_path, meta, args.time_budget_s, args.max_iters, args.min_iters, args.warmup_iters, device)
 
     log.info("Done.")
 
