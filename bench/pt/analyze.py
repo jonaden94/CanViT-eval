@@ -224,7 +224,7 @@ def print_pairwise(groups: dict[tuple, GroupStats]) -> None:
     log.info("")
     log.info("Pairwise across threads (same model/scene/cg/dtype/compiled/batch):")
     log.info(
-        f"{'config':<55s}  {'tA→tB':>10s}  {'med_A':>8s}  {'med_B':>8s}  "
+        f"{'config':<55s}  {'threads A→B':>14s}  {'med_A':>8s}  {'med_B':>8s}  "
         f"{'CI_overlap':>10s}  {'verdict':<35s}"
     )
     log.info("-" * 150)
@@ -251,7 +251,7 @@ def print_pairwise(groups: dict[tuple, GroupStats]) -> None:
 
             label = a.label.rsplit("/threads=", 1)[0]  # strip the thread-count tag
             log.info(
-                f"{label:<55s}  {a.key[6]:>4d}T→{b.key[6]:<3d}T  "
+                f"{label:<55s}  {a.key[6]:>6d}→{b.key[6]:<7d}  "
                 f"{sa['median']:>8.2f}  {sb['median']:>8.2f}  "
                 f"{'yes' if overlap else 'no':>10s}  {verdict:<35s}"
             )
