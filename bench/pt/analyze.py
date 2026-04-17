@@ -139,6 +139,15 @@ class GroupStats:
 
     def summary(self) -> dict:
         a = self.all_ms
+        if a.size == 0:
+            nan = float("nan")
+            return {
+                "n_iters": 0, "n_runs": self.n_runs,
+                "median": nan, "median_ci": (nan, nan),
+                "min": nan, "min_ci": (nan, nan),
+                "p5": nan, "p95": nan, "p99": nan,
+                "mean": nan, "std": nan, "max": nan,
+            }
         med = float(np.median(a))
         med_lo, med_hi = bootstrap_ci(a, np.median)
         mn = float(a.min())
