@@ -120,20 +120,18 @@ def _sync(device: torch.device) -> None:
         torch.mps.synchronize()
 
 
-def _measure_peak_mb(device: torch.device, fn: Callable[[], None]) -> float | None:
+def _reset_peak_mem(device: torch.device) -> None:
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
-        _sync(device)
-        fn()
-        _sync(device)
+    elif device.type == "mps":
+        torch.mps.empty_cache()
+
+
+def _read_peak_mb(device: torch.device) -> float | None:
+    if device.type == "cuda":
         return round(torch.cuda.max_memory_allocated() / 1e6, 1)
     if device.type == "mps":
-        torch.mps.empty_cache()
-        _sync(device)
-        before = torch.mps.current_allocated_memory()
-        fn()
-        _sync(device)
-        return round((torch.mps.current_allocated_memory() - before) / 1e6, 1)
+        return round(torch.mps.current_allocated_memory() / 1e6, 1)
     return None
 
 
@@ -147,11 +145,13 @@ def _measure_streaming(
     warmup_iters: int,
     device: torch.device,
 ) -> None:
-    """Warmup (compilation), then measure fn repeatedly, streaming to JSONL.
+    """Warmup, then measure fn repeatedly, streaming to JSONL.
 
-    Phase 1: N_WARMUP warmup iterations (not timed against budget).
-             Iter 0 triggers torch.compile. Peak memory measured after warmup.
-    Phase 2: Timed iterations until time_budget_s or max_iters (whichever first).
+    Phase 1: warmup iterations (not timed against budget).
+             Iter 0 triggers torch.compile.
+    Phase 2: peak-memory counter reset, then timed iterations until
+             time_budget_s or max_iters (whichever first).
+             Peak memory recorded once at the end of the measurement phase.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
@@ -170,14 +170,8 @@ def _measure_streaming(
             f.write(json.dumps(row) + "\n")
             f.flush()
 
-        # -- Peak memory (after warmup, before measurement) --
-        peak_mb = _measure_peak_mb(device, fn)
-        if peak_mb is not None:
-            log.info("  peak memory: %.1f MB", peak_mb)
-            f.write(json.dumps({"type": "peak_mem", "peak_mem_mb": peak_mb}) + "\n")
-            f.flush()
-
-        # -- Measurement phase (budget starts here) --
+        # -- Measurement phase: reset peak-mem counter, then loop --
+        _reset_peak_mem(device)
         i = 0
         wall_start = time.perf_counter()
         while True:
@@ -198,6 +192,13 @@ def _measure_streaming(
             i += 1
             if i >= min_iters and (wall_s >= time_budget_s or i >= max_iters):
                 break
+
+        # -- Peak memory at the end of the measurement phase --
+        peak_mb = _read_peak_mb(device)
+        if peak_mb is not None:
+            log.info("  peak memory: %.1f MB", peak_mb)
+            f.write(json.dumps({"type": "peak_mem", "peak_mem_mb": peak_mb}) + "\n")
+            f.flush()
 
     log.info("  %d measured iterations in %.1fs -> %s", i, time.perf_counter() - wall_start, out_path)
 
