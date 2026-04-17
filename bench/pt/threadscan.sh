@@ -27,7 +27,14 @@ set -euo pipefail
 MODEL="${MODEL:-canvit}"
 SCENE_PX="${SCENE_PX:-512}"
 DTYPE="${DTYPE:-fp32}"
-THREADS="${THREADS:-4 8 16 32}"
+# Thread sweep. Default: {1, quarter, half, physical cores, logical cores}.
+# Physical-core count is queried from /sys topology (falls back to nproc on
+# non-Linux). On a 16P/32T 7950X the default list becomes "1 4 8 16 32".
+_phys=$(ls -d /sys/devices/system/cpu/cpu[0-9]*/topology/core_id 2>/dev/null \
+    | xargs -r cat 2>/dev/null | sort -u | wc -l)
+if [[ "$_phys" -lt 1 ]]; then _phys=$(nproc); fi
+_logical=$(nproc)
+THREADS="${THREADS:-1 $((_phys/4)) $((_phys/2)) $_phys $_logical}"
 PASSES="${PASSES:-3}"
 TIME_BUDGET_S="${TIME_BUDGET_S:-60}"
 MAX_ITERS="${MAX_ITERS:-300}"
@@ -48,17 +55,19 @@ TS=$(date +%Y%m%d_%H%M%S)
 LOG="/tmp/threadscan_${TS}.log"
 
 echo "=== threadscan $TS ===" | tee -a "$LOG"
-echo "repo:        $REPO_ROOT" | tee -a "$LOG"
-echo "uv project:  $UV_PROJECT" | tee -a "$LOG"
-echo "run.py:      $RUN_PY" | tee -a "$LOG"
-echo "model:       $MODEL" | tee -a "$LOG"
-echo "scene_px:    $SCENE_PX" | tee -a "$LOG"
-echo "dtype:       $DTYPE" | tee -a "$LOG"
-echo "threads:     $THREADS" | tee -a "$LOG"
-echo "passes:      $PASSES" | tee -a "$LOG"
-echo "max_iters:   $MAX_ITERS" | tee -a "$LOG"
-echo "warmup:      $WARMUP" | tee -a "$LOG"
-echo "log:         $LOG" | tee -a "$LOG"
+echo "repo:           $REPO_ROOT" | tee -a "$LOG"
+echo "uv project:     $UV_PROJECT" | tee -a "$LOG"
+echo "run.py:         $RUN_PY" | tee -a "$LOG"
+echo "model:          $MODEL" | tee -a "$LOG"
+echo "scene_px:       $SCENE_PX" | tee -a "$LOG"
+echo "dtype:          $DTYPE" | tee -a "$LOG"
+echo "threads:        $THREADS" | tee -a "$LOG"
+echo "physical cores: $_phys" | tee -a "$LOG"
+echo "logical cores:  $_logical" | tee -a "$LOG"
+echo "passes:         $PASSES" | tee -a "$LOG"
+echo "max_iters:      $MAX_ITERS" | tee -a "$LOG"
+echo "warmup:         $WARMUP" | tee -a "$LOG"
+echo "log:            $LOG" | tee -a "$LOG"
 
 # ── Pre-flight: refuse to start if GPU or CPU is busy ────────────────────
 echo "" | tee -a "$LOG"

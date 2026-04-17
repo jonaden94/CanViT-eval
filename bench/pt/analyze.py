@@ -7,7 +7,7 @@ thread-count regressions and per-run time drift.
     uv run python bench/pt/analyze.py --glob 'bench/pt/results/*.jsonl'
 """
 
-import glob as glob_mod
+import glob
 import json
 import logging
 import sys
@@ -279,17 +279,17 @@ def print_drift_flags(runs: list[Run]) -> None:
 
 @dataclass
 class Args:
-    glob: str | None = None
+    pattern: str | None = None
     """Glob pattern for JSONL files (e.g. 'results/*20260417*.jsonl')."""
     files: list[Path] = field(default_factory=list)
-    """Explicit JSONL file paths (alternative to --glob)."""
+    """Explicit JSONL file paths (alternative to --pattern)."""
 
 
 def main(args: Args) -> None:
     paths: list[Path] = list(args.files)
-    if args.glob:
-        paths.extend(sorted(Path(p) for p in glob_mod.glob(args.glob)))
-    assert paths, "Pass --glob or --files. Nothing to analyze."
+    if args.pattern:
+        paths.extend(sorted(Path(p) for p in glob.glob(args.pattern)))
+    assert paths, "Pass --pattern or --files. Nothing to analyze."
 
     log.info(f"Loading {len(paths)} file(s)...")
     runs = [load_jsonl(p) for p in paths]
