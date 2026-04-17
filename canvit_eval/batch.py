@@ -369,6 +369,17 @@ def build_eval_matrix(
                                     mode="finetuned", resolutions=IN1K_RESOLUTIONS))
     if "recon" in tasks:
         jobs.extend(_recon_jobs(out_dir, n_runs=n_runs, ts=ts))
+
+    # Breadth-first scheduling: run every config once at r=0, then r=1, etc.
+    # Lets a preview figure emerge after len(configs) jobs (end of round 0)
+    # instead of only when the whole matrix finishes. Filenames are pure
+    # functions of (structural fields, invocation ts) so reordering here
+    # does not affect filenames, skip-existing, sync, or any consumer.
+    jobs.sort(key=lambda j: (
+        j.run_idx, j.task, j.model,
+        j.scene_size or 0, j.canvas_grid or 0, j.input_px or 0,
+        j.policy or "",
+    ))
     return jobs
 
 
