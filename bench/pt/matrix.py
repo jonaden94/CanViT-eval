@@ -175,7 +175,9 @@ def build_matrix(
 
 @dataclass
 class Args:
-    models: list[ModelName] = field(default_factory=lambda: ["canvit", "dinov3-vitb16"])
+    models: list[ModelName] = field(default_factory=lambda: ["canvit", "dinov3-vitb16", "dinov3-vits16"])
+    """Include DINOv3 ViT-S by default: shows the exponential scene-size
+    hit applies to smaller backbones too, not just ViT-B."""
     cpu_scenes: list[int] = field(default_factory=lambda: [128, 256, 512, 1024])
     cpu_threads: list[int] = field(default_factory=list)
     """CPU thread counts. Empty = auto from physical cores: {1, phys/4, phys/2, phys, logical}."""
