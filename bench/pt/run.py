@@ -165,8 +165,7 @@ def _measure_streaming(
             fn()
             _sync(device)
             elapsed_ms = (time.perf_counter() - t0) * 1000
-            tag = "cold/compile" if w == 0 else "warmup"
-            log.info("  warmup %d (%s): %.1fms", w, tag, elapsed_ms)
+            log.info("  warmup %d: %.1fms", w, elapsed_ms)
             row = {"type": "warmup", "i": w, "ms": round(elapsed_ms, 4)}
             f.write(json.dumps(row) + "\n")
             f.flush()
@@ -318,7 +317,10 @@ def main() -> None:
             meta["glimpse_px"] = CANVIT_GLIMPSE_PX
 
         out_path = RESULTS_DIR / f"bench_{rid}.jsonl"
-        log.info("Measuring for %.0fs...", args.time_budget_s)
+        log.info(
+            "Measuring (budget %.0fs, max_iters %d, min_iters %d)...",
+            args.time_budget_s, args.max_iters, args.min_iters,
+        )
         with _autocast(args, device):
             _measure_streaming(fwd, out_path, meta, args.time_budget_s, args.max_iters, args.min_iters, args.warmup_iters, device)
 
