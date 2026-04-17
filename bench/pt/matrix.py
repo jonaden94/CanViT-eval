@@ -177,7 +177,7 @@ Profile = Literal["fast", "full"]
 
 PROFILES: dict[Profile, dict] = {
     "fast": {"passes": 1, "time_budget_s": 10.0, "max_iters": 100},
-    "full": {"passes": 3, "time_budget_s": 60.0, "max_iters": 500},
+    "full": {"passes": 3, "time_budget_s": 20.0, "max_iters": 500},
 }
 
 
