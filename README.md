@@ -72,6 +72,22 @@ all runs (even same run_idx across different timestamps) and logs per-file
 provenance (timestamp, git_commit, model_repo, final-t mIoU) — see
 `export/ade20k_seg.py:_build_policy_curves` for the audit line format.
 
+## Latency bench
+
+Per-forward-pass latency measurements for the paper's hardware table.
+Separate from the eval batch (no probes, no datasets — just model forward
+timing). Full doc: `bench/pt/README.md`.
+
+```bash
+# Fast profile (~15 min, paper figure).
+uv run python bench/pt/matrix.py --profile fast
+# Full profile (~25 min, 3 passes for distributional analysis).
+uv run python bench/pt/matrix.py --profile full
+
+# Analysis over the resulting JSONLs:
+uv run python bench/pt/analyze.py --pattern 'bench/pt/results/*.jsonl'
+```
+
 ## Architecture
 
 ```bash
