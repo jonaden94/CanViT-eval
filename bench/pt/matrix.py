@@ -65,12 +65,7 @@ def logical_cores() -> int:
 class IdleThresholds:
     max_gpu_util_pct: int = 5
     max_gpu_procs: int = 0
-    # 1-min load average is the robust gate; total_cpu_pct is a snapshot
-    # prone to transient spikes from e.g. the pcpu-query pipeline itself.
-    # On a shared dev box with multiple logged-in users (crockett has 7),
-    # instantaneous total CPU% can jump past 100% harmlessly.
     max_load_1min: float = 2.0
-    max_total_cpu_pct: float = 80.0
 
 
 def preflight(t: IdleThresholds = IdleThresholds()) -> None:
@@ -90,19 +85,16 @@ def preflight(t: IdleThresholds = IdleThresholds()) -> None:
     except FileNotFoundError:
         log.info("GPU: nvidia-smi not found (skipping)")
 
-    # CPU load average
+    # CPU: use 1-min load average from /proc/loadavg. That's the kernel's
+    # own "are cores saturated" signal. Don't use `sum(ps pcpu)` — pcpu for
+    # long-lived daemons is lifetime-average so it sums to 100%+ on a box
+    # with 91 days of uptime and hundreds of processes even when the box
+    # is effectively idle.
     with open("/proc/loadavg") as f:
         load1 = float(f.read().split()[0])
     log.info(f"CPU load (1 min): {load1:.2f}")
     if load1 > t.max_load_1min:
         raise RuntimeError(f"CPU load average {load1} > {t.max_load_1min}")
-
-    # Total CPU% across processes
-    out = subprocess.check_output(["ps", "-eo", "pcpu", "--no-headers"], text=True)
-    total = sum(float(x) for x in out.split() if x.strip())
-    log.info(f"Total CPU%: {total:.1f}")
-    if total > t.max_total_cpu_pct:
-        raise RuntimeError(f"total CPU% {total:.1f} > {t.max_total_cpu_pct}")
 
 
 # ── Job model ────────────────────────────────────────────────────────────
