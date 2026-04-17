@@ -73,20 +73,18 @@ class Args:
     time_budget_s: float = 120.0
     """Measurement time budget in seconds (excludes model loading)."""
     max_iters: int = 500
-    """Stop after this many iterations even if time budget not exhausted.
-
-    The historical default was 100, which silently truncated direct `run.py`
-    invocations while `run_matrix.sh` passed `--max-iters 500` explicitly.
-    That inconsistency caused the 2026-03-14 multi-thread sweep in
-    hw_bench.json to have exactly n=100 per config (capped on iters, not
-    on time budget), mismatched against the 1T runs (n=130–237, capped on
-    time budget). Bumping the default aligns direct invocations with the
-    matrix default and eliminates the silent-cap footgun.
-    """
+    """Stop after this many iterations even if time budget not exhausted."""
+    min_iters: int = 2
+    """Run at least this many measurement iterations, even if the time budget
+    is already exhausted. Guarantees a baseline sample count for slow cells
+    (e.g. DINOv3 CPU 1024px at ~13 s/iter would do 0 iters on a 10 s budget
+    without this floor)."""
     num_threads: int = 0
     """Number of CPU threads (0 = PyTorch default). Only relevant for --device cpu."""
-    warmup_iters: int = 3
-    """Warmup iterations before measurement (iter 0 triggers torch.compile)."""
+    warmup_iters: int = 1
+    """Warmup iterations before measurement. Default 1 because iter 0
+    triggers torch.compile on CUDA and primes caches on CPU — additional
+    warmup iters add no information. Raise for noisy environments."""
 
 
 def _weight_dtype(args: Args) -> torch.dtype:
@@ -145,6 +143,7 @@ def _measure_streaming(
     meta: dict,
     time_budget_s: float,
     max_iters: int,
+    min_iters: int,
     warmup_iters: int,
     device: torch.device,
 ) -> None:
@@ -198,7 +197,7 @@ def _measure_streaming(
                 log.info("  iter %d: %.2fms (wall %.1fs)", i, elapsed_ms, wall_s)
 
             i += 1
-            if wall_s >= time_budget_s or i >= max_iters:
+            if i >= min_iters and (wall_s >= time_budget_s or i >= max_iters):
                 break
 
     log.info("  %d measured iterations in %.1fs -> %s", i, time.perf_counter() - wall_start, out_path)
@@ -321,7 +320,7 @@ def main() -> None:
         out_path = RESULTS_DIR / f"bench_{rid}.jsonl"
         log.info("Measuring for %.0fs...", args.time_budget_s)
         with _autocast(args, device):
-            _measure_streaming(fwd, out_path, meta, args.time_budget_s, args.max_iters, args.warmup_iters, device)
+            _measure_streaming(fwd, out_path, meta, args.time_budget_s, args.max_iters, args.min_iters, args.warmup_iters, device)
 
     log.info("Done.")
 

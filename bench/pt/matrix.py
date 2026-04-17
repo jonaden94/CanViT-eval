@@ -176,8 +176,8 @@ def build_matrix(
 Profile = Literal["fast", "full"]
 
 PROFILES: dict[Profile, dict] = {
-    "fast": {"passes": 1, "time_budget_s": 10.0, "max_iters": 100},
-    "full": {"passes": 3, "time_budget_s": 20.0, "max_iters": 500},
+    "fast": {"passes": 1, "time_budget_s": 10.0, "max_iters": 100, "warmup_iters": 1, "min_iters": 2},
+    "full": {"passes": 3, "time_budget_s": 20.0, "max_iters": 500, "warmup_iters": 3, "min_iters": 5},
 }
 
 
