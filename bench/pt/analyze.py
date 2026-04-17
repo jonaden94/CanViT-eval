@@ -57,7 +57,7 @@ class Run:
         c = "compiled" if m["compiled"] else "eager"
         return (
             f"{m['model']}/{m['device']}/s={m['scene_px']}{cg}/"
-            f"{m['dtype']}/{c}/T={m['num_threads_actual']}"
+            f"{m['dtype']}/{c}/threads={m['num_threads_actual']}"
         )
 
 
@@ -249,7 +249,7 @@ def print_pairwise(groups: dict[tuple, GroupStats]) -> None:
             if not agrees:
                 verdict += " [med/min disagree]"
 
-            label = a.label.rsplit("/T=", 1)[0]  # strip the thread-count tag
+            label = a.label.rsplit("/threads=", 1)[0]  # strip the thread-count tag
             log.info(
                 f"{label:<55s}  {a.key[6]:>4d}T→{b.key[6]:<3d}T  "
                 f"{sa['median']:>8.2f}  {sb['median']:>8.2f}  "

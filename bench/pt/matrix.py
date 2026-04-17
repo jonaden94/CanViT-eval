@@ -113,7 +113,7 @@ class BenchJob:
     def describe(self) -> str:
         parts = [self.model, self.device, f"s={self.scene_px}", self.dtype]
         if self.device == "cpu":
-            parts.append(f"T={self.num_threads}")
+            parts.append(f"threads={self.num_threads}")
         if self.compiled:
             parts.append("compiled")
         parts.append(f"pass={self.pass_idx}")
