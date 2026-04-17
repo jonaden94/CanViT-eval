@@ -65,8 +65,12 @@ def logical_cores() -> int:
 class IdleThresholds:
     max_gpu_util_pct: int = 5
     max_gpu_procs: int = 0
+    # 1-min load average is the robust gate; total_cpu_pct is a snapshot
+    # prone to transient spikes from e.g. the pcpu-query pipeline itself.
+    # On a shared dev box with multiple logged-in users (crockett has 7),
+    # instantaneous total CPU% can jump past 100% harmlessly.
     max_load_1min: float = 2.0
-    max_total_cpu_pct: float = 30.0
+    max_total_cpu_pct: float = 80.0
 
 
 def preflight(t: IdleThresholds = IdleThresholds()) -> None:
