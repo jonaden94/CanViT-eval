@@ -72,8 +72,17 @@ class Args:
     batch_size: int = 1
     time_budget_s: float = 120.0
     """Measurement time budget in seconds (excludes model loading)."""
-    max_iters: int = 100
-    """Stop after this many iterations even if time budget not exhausted."""
+    max_iters: int = 500
+    """Stop after this many iterations even if time budget not exhausted.
+
+    The historical default was 100, which silently truncated direct `run.py`
+    invocations while `run_matrix.sh` passed `--max-iters 500` explicitly.
+    That inconsistency caused the 2026-03-14 multi-thread sweep in
+    hw_bench.json to have exactly n=100 per config (capped on iters, not
+    on time budget), mismatched against the 1T runs (n=130–237, capped on
+    time budget). Bumping the default aligns direct invocations with the
+    matrix default and eliminates the silent-cap footgun.
+    """
     num_threads: int = 0
     """Number of CPU threads (0 = PyTorch default). Only relevant for --device cpu."""
     warmup_iters: int = 3
