@@ -1,20 +1,30 @@
-"""Output paths for the ADE20K mask-size pipeline (SSOT)."""
+"""Output paths for the ADE20K mask-size pipeline (SSOT).
+
+Matches the `results/{task_dir}/` convention used by `canvit_eval.batch` —
+each task namespaces its artifacts under its own subdir. Filenames inside
+the subdir drop redundant prefixes (the "ade20k_obj" is in the path; no need
+to repeat it in each filename).
+"""
 
 from pathlib import Path
 
 
 RESULTS_DIR = Path("./results")
 
+# All ade20k_obj artifacts live under one subdir so they rsync together and
+# can be rm'd/archived as a unit.
+TASK_DIR = RESULTS_DIR / "ade20k_obj"
+
 # DINOv3 features (one .pt per input resolution, produced by export_dv3_features).
-FEATURES_DIR = RESULTS_DIR / "dv3_features"
+FEATURES_DIR = TASK_DIR / "dv3_features"
 
 # Per-(image, class) GT area table — produced by `gt_areas`.
-AREA_PARQUET = RESULTS_DIR / "ade20k_df_flat.parquet"
-AREA_STATS_PARQUET = RESULTS_DIR / "ade20k_df_stats.parquet"
+AREA_PARQUET = TASK_DIR / "areas.parquet"
+AREA_STATS_PARQUET = TASK_DIR / "area_stats.parquet"
 
 # Per-row IoU outputs of `iou` (consumed by the paper's mask-size figure).
-DV3_PARQUET = RESULTS_DIR / "dv3_ade20k_per_image.parquet"
-CANVIT_PARQUET = RESULTS_DIR / "canvit_ade20k_per_image.parquet"
+DV3_PARQUET = TASK_DIR / "dv3_iou.parquet"
+CANVIT_PARQUET = TASK_DIR / "canvit_iou.parquet"
 
 
 def features_path(eval_resolution_px: int) -> Path:
