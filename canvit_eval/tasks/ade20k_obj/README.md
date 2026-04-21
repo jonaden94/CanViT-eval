@@ -1,4 +1,4 @@
-# ADE20K Object/Mask Analysis
+# ADE20K Mask Analysis
 
 Produces per-(image, class) and per-(image, class, timestep) intersection/union counts for the ADE20K val set, feeding the object-size analysis figure: "when/why does CanViT beat DINOv3, by mask size?"
 
@@ -12,16 +12,16 @@ Runs the full pipeline in order, skipping any step whose outputs already exist i
 
 1. Export DINOv3 patch features for all resolutions → `results/dv3_features/`
 2. Build per-(image, class) area dataframe → `results/ade20k_df_flat.parquet`
-3. Compute per-image IoU for DINOv3 → `results/dv3_ade20k_per_image.parquet`
-4. Compute per-image IoU for CanViT (all canvas resolutions) → `results/canvit_ade20k_per_image.parquet`
+3. Compute per-(image, class) IoU for DINOv3 → `results/dv3_ade20k_per_image.parquet`
+4. Compute per-(image, class, timestep) IoU for CanViT (all canvas resolutions) → `results/canvit_ade20k_per_image.parquet`
 
-The outputs are consumed by CanViT-Toward-AVFMs for object-size binning, LOWESS smoothing, and figure panels.
+The outputs are consumed by CanViT-Toward-AVFMs for MASK-size LOWESS smoothing, and figure panels.
 
 ## Design rationale
 
 **Raw counts, not IoU.** Parquets store `inter_px` and `union_px` (int64 pixel counts), not derived IoU floats. IoU is not reaggregatable: global mIoU = Σ(intersection) / Σ(union) across images, which differs from averaging per-image IoUs. Storing counts lets you compute both. It also avoids 0/0 NaNs when a class is absent from an image.
 
-**Also store `gt_area_px`.** Needed for object-size analysis. It is free to compute in the same pass since the target mask is already loaded.
+**Also store `gt_area_px`.** Needed for mask-size analysis. It is free to compute in the same pass since the target mask is already loaded.
 
 **No binning in eval.** Raw counts are saved; binning (bin count, linear vs log, bin edges) is a figure-level decision handled downstream in CanViT-Toward-AVFMs. This avoids re-running eval every time the figure changes.
 
@@ -44,7 +44,7 @@ uv run python canvit_eval/tasks/ade20k_obj/export_dv3_features.py --eval-resolut
 uv run python canvit_eval/tasks/ade20k_obj/dataframe_dataset.py
 ```
 
-**Step 3 — Per-image IoU:**
+**Step 3 — Per-(image, class) IoU:**
 
 ```bash
 # DINOv3

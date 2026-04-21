@@ -1,10 +1,10 @@
-"""Full ADE20K object-size pipeline.
+"""Full ADE20K mask-size pipeline.
 
-Runs all three steps in order, skipping steps whose outputs already exist:
-  1. Export DINOv3 patch features for all resolutions → results/dv3_features/
-  2. Build per-(image, class) area dataframe           → results/ade20k_df_flat.parquet
-  3. Compute per-image IoU for DINOv3 and CanViT       → results/dv3_ade20k_per_image.parquet
-                                                          results/canvit_ade20k_per_image.parquet
+Runs all steps in order, skipping steps whose outputs already exist:
+  1. Export DINOv3 patch features for all resolutions  → results/dv3_features/
+  2. Build per-(image, class) area dataframe            → results/ade20k_df_flat.parquet
+  3. Compute per-(image, class) IoU for DINOv3          → results/dv3_ade20k_per_image.parquet
+  4. Compute per-(image, class, timestep) IoU for CanViT → results/canvit_ade20k_per_image.parquet
 
 Usage:
     uv run python -m canvit_eval.tasks.ade20k_obj
