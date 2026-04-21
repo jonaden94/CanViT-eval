@@ -16,7 +16,7 @@ import numpy as np
 
 
 ResizeMode = Literal["center_crop", "squish"]
-OUTPUT_DIR = Path("./output")
+OUTPUT_DIR = Path("./results")
 
 
 def ade20k_root() -> Path:
