@@ -13,6 +13,7 @@ Usage:
         --canvas-resolutions 8 32 64
 """
 
+import gc
 import json
 import logging
 import time
@@ -51,7 +52,7 @@ CANVIT_PROBE_REPOS: dict[int, str] = {
     64: "canvit/probe-ade20k-40k-s1024-c64-in21k",
 }
 
-DEFAULT_EXPORTS_DIR = Path(__file__).parents[4] / "explore-ade20k" / "outputs"
+DEFAULT_EXPORTS_DIR = Path("./output/dv3_features")
 DEFAULT_AREA_PARQUET = DEFAULT_EXPORTS_DIR / "ade20k_df_flat.parquet"
 
 
@@ -78,8 +79,10 @@ class DINOv3Config(BaseConfig):
 class CanViTConfig(BaseConfig):
     """CanViT: on-the-fly episode with EntropyC2F, multiple canvas resolutions."""
     output: Path = Path("output/canvit_ade20k_per_image.parquet")
-    canvas_resolutions: list[int]
+    canvas_resolutions: list[int] = field(default_factory=list)
     """Canvas resolutions to process, e.g. [8 16 32 64]. Each appends to output parquet."""
+    all: bool = False
+    """Run all supported canvas resolutions (8 9 10 12 16 24 32 64) in batches of 3."""
     model_repo: str = field(default_factory=lambda: EpisodeConfig().model_repo)
     glimpse_resolution: int = 128
     n_timesteps: int = 21
@@ -173,7 +176,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     frames = []
 
     for res in cfg.resolutions:
-        features_path = cfg.exports_dir / f"{res}px" / "features.pt"
+        features_path = cfg.exports_dir / f"{res}px_features.pt"
         if not features_path.exists():
             raise FileNotFoundError(features_path)
 
@@ -310,37 +313,51 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
 def run_canvit(cfg: CanViTConfig) -> Path:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s", datefmt="%H:%M:%S")
     device = _get_device(cfg.device)
-    log.info("CanViT  device=%s  canvas_resolutions=%s", device, cfg.canvas_resolutions)
 
-    unknown = [c for c in cfg.canvas_resolutions if c not in CANVIT_PROBE_REPOS]
+    resolutions = sorted(CANVIT_PROBE_REPOS) if cfg.all else cfg.canvas_resolutions
+    if not resolutions:
+        raise ValueError("Specify --canvas-resolutions or pass --all")
+    log.info("CanViT  device=%s  canvas_resolutions=%s", device, resolutions)
+
+    unknown = [c for c in resolutions if c not in CANVIT_PROBE_REPOS]
     if unknown:
         raise ValueError(f"No probe repo for canvas_resolution={unknown}. Available: {sorted(CANVIT_PROBE_REPOS)}")
 
     area_df = _load_area_df(cfg.area_parquet)
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
 
-    combined = pd.DataFrame()
-    for cr in cfg.canvas_resolutions:
-        # Reload parquet each iteration so partial results survive failures
-        if cfg.output.exists():
-            existing = pd.read_parquet(cfg.output)
-            kept = existing[existing["canvas_resolution"] != cr]
-        else:
-            kept = pd.DataFrame()
+    batch_size = 3
+    batches = [resolutions[i:i + batch_size] for i in range(0, len(resolutions), batch_size)]
 
-        df = _run_one_canvas(cr, cfg, device)
-        torch.cuda.empty_cache()
-        df = df.merge(area_df, on=["image_idx", "class_idx"], how="left")
-        combined = pd.concat([kept, df], ignore_index=True) if not kept.empty else df
-        combined.to_parquet(cfg.output, index=False)
-        log.info("  c%d saved — parquet now %d rows  (%.1f MB)", cr, len(combined), cfg.output.stat().st_size / 1e6)
+    combined = pd.DataFrame()
+    for batch_idx, batch in enumerate(batches):
+        log.info("Batch %d/%d: canvas_resolutions=%s", batch_idx + 1, len(batches), batch)
+        for cr in batch:
+            # Reload parquet each iteration so partial results survive failures
+            if cfg.output.exists():
+                existing = pd.read_parquet(cfg.output)
+                kept = existing[existing["canvas_resolution"] != cr]
+            else:
+                kept = pd.DataFrame()
+
+            df = _run_one_canvas(cr, cfg, device)
+            torch.cuda.empty_cache()
+            df = df.merge(area_df, on=["image_idx", "class_idx"], how="left")
+            combined = pd.concat([kept, df], ignore_index=True) if not kept.empty else df
+            combined.to_parquet(cfg.output, index=False)
+            log.info("  c%d saved — parquet now %d rows  (%.1f MB)", cr, len(combined), cfg.output.stat().st_size / 1e6)
+
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+        gc.collect()
 
     # JSON sidecar with metadata
     sidecar = cfg.output.with_suffix(".json")
     meta = {
         "model_repo": cfg.model_repo,
         "canvas_resolutions_in_parquet": sorted(int(c) for c in combined["canvas_resolution"].unique()) if not combined.empty else [],
-        "canvas_resolutions_this_run": cfg.canvas_resolutions,
+        "canvas_resolutions_this_run": resolutions,
         "n_timesteps": cfg.n_timesteps,
         "scene_size": cfg.scene_size,
         "glimpse_resolution": cfg.glimpse_resolution,
