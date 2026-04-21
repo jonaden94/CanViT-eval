@@ -35,19 +35,19 @@ uv run python -m canvit_eval.tasks.ade20k_obj.export_dv3_features --eval-resolut
 **2. Area dataframe** — `AREA_PARQUET`, `AREA_STATS_PARQUET`
 
 ```bash
-uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_dataset
+uv run python -m canvit_eval.tasks.ade20k_obj.gt_areas
 ```
 
 **3. Per-image IoU** — DINOv3 and CanViT are independent subcommands.
 
 ```bash
 # DINOv3 — consumes every features.pt present under FEATURES_DIR.
-uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_iou_mask_size dinov3
+uv run python -m canvit_eval.tasks.ade20k_obj.iou dinov3
 
 # CanViT — pass the canvas resolutions you want. Each runs in its own
 # subprocess so CUDA memory is fully released between them.
-uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_iou_mask_size canvit \
+uv run python -m canvit_eval.tasks.ade20k_obj.iou canvit \
     --canvas-resolutions 8 16 32 64
 ```
 
-Valid canvas resolutions are the keys of `CANVIT_PROBE_REPOS` in `dataframe_iou_mask_size.py`.
+Valid canvas resolutions are the keys of `CANVIT_PROBE_REPOS` in `iou.py`.

@@ -20,17 +20,17 @@ import datetime as dt
 import logging
 from pathlib import Path
 
-from canvit_eval.tasks.ade20k_obj.dataframe_dataset import main as build_area_dataframe
-from canvit_eval.tasks.ade20k_obj.dataframe_iou_mask_size import (
+from canvit_eval.tasks.ade20k_obj.export_dv3_features import (
+    ExportFeaturesConfig,
+    main as export_dv3_features,
+)
+from canvit_eval.tasks.ade20k_obj.gt_areas import main as build_area_dataframe
+from canvit_eval.tasks.ade20k_obj.iou import (
     CANVIT_PROBE_REPOS,
     CanViTConfig,
     DINOv3Config,
     run_canvit,
     run_dinov3,
-)
-from canvit_eval.tasks.ade20k_obj.export_dv3_features import (
-    ExportFeaturesConfig,
-    main as export_dv3_features,
 )
 from canvit_eval.tasks.ade20k_obj.paths import (
     AREA_PARQUET,

@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from canvit_eval.config import TEACHER_REPO, ade20k_root
-from canvit_eval.tasks.ade20k_obj.dataframe_dataset import EXPECTED_N_VAL_IMAGES
+from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
 from canvit_eval.tasks.ade20k_obj.paths import FEATURES_DIR, features_path
 
 log = logging.getLogger(__name__)

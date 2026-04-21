@@ -5,8 +5,8 @@ CanViT: runs episodes on the fly with EntropyC2F policy, writes CANVIT_PARQUET
         with one row per (image, class, timestep).
 
 Usage:
-    uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_iou_mask_size dinov3
-    uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_iou_mask_size canvit --canvas-resolutions 8 32 64
+    uv run python -m canvit_eval.tasks.ade20k_obj.iou dinov3
+    uv run python -m canvit_eval.tasks.ade20k_obj.iou canvit --canvas-resolutions 8 32 64
 """
 
 import gc
@@ -34,7 +34,7 @@ from tqdm import tqdm
 
 from canvit_eval.config import EpisodeConfig, ade20k_root
 from canvit_eval.runner import eval_batches
-from canvit_eval.tasks.ade20k_obj.dataframe_dataset import EXPECTED_N_VAL_IMAGES
+from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
 from canvit_eval.tasks.ade20k_obj.paths import (
     AREA_PARQUET,
     CANVIT_PARQUET,
@@ -405,7 +405,7 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
 
 
 def _build_subprocess_cmd(cfg: CanViTConfig, canvas_resolution: int) -> list[str]:
-    cmd = [sys.executable, "-m", "canvit_eval.tasks.ade20k_obj.dataframe_iou_mask_size", "canvit"]
+    cmd = [sys.executable, "-m", "canvit_eval.tasks.ade20k_obj.iou", "canvit"]
     cmd += ["--canvas-resolutions", str(canvas_resolution)]
     cmd += ["--output", str(cfg.output)]
     cmd += ["--model-repo", cfg.model_repo]

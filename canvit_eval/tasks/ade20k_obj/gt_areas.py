@@ -4,7 +4,7 @@ Outputs:
     AREA_PARQUET       one row per (image_idx, class_idx) with area (pixel fraction).
     AREA_STATS_PARQUET one row per class with mean/min/max area across the val set.
 
-Both are consumed downstream by `dataframe_iou_mask_size` and the mask-size figure
+Both are consumed downstream by `iou` (this package) and by the mask-size figure
 (plotting/figures/resolution_and_mask_size_analysis.py in CanViT-Toward-AVFMs).
 """
 

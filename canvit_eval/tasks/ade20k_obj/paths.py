@@ -8,11 +8,11 @@ RESULTS_DIR = Path("./results")
 # DINOv3 features (one .pt per input resolution, produced by export_dv3_features).
 FEATURES_DIR = RESULTS_DIR / "dv3_features"
 
-# Per-(image, class) area table — GT-only, produced by dataframe_dataset.
+# Per-(image, class) GT area table — produced by `gt_areas`.
 AREA_PARQUET = RESULTS_DIR / "ade20k_df_flat.parquet"
 AREA_STATS_PARQUET = RESULTS_DIR / "ade20k_df_stats.parquet"
 
-# Per-row IoU outputs of dataframe_iou_mask_size.
+# Per-row IoU outputs of `iou` (consumed by the paper's mask-size figure).
 DV3_PARQUET = RESULTS_DIR / "dv3_ade20k_per_image.parquet"
 CANVIT_PARQUET = RESULTS_DIR / "canvit_ade20k_per_image.parquet"
 
