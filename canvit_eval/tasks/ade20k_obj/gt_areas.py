@@ -57,16 +57,6 @@ def _load_class_names(ade20k_root: Path) -> dict[int, str]:
     return names
 
 
-def compute_class_area(ann: np.ndarray, class_idx: int) -> float:
-    """Fraction of pixels in ann occupied by class_idx. Reference impl.
-
-    Used only as a correctness oracle for `build_image_class_dataframe`'s
-    bincount path; production code goes through bincount (one pass over the
-    mask produces counts for all classes at once).
-    """
-    return float((ann == class_idx).sum() / ann.size)
-
-
 # Raw ADE20K PNGs encode class index in pixel values 0..150 (0 = background,
 # 1..150 = semantic classes). uint8 bincount has 256 bins exactly.
 _BINCOUNT_BINS = 256

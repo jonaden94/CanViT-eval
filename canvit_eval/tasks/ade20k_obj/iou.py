@@ -118,32 +118,6 @@ class CanViTConfig(BaseConfig):
 # ── Shared utilities ─────────────────────────────────────────────────────────
 
 
-def _per_image_iou(
-    pred: torch.Tensor,
-    mask: torch.Tensor,
-    n_classes: int,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Histc confusion matrix → (inter, union, gt_area), each [n_classes].
-
-    pred: [H, W] int64, 0-indexed class predictions ∈ [0, n_classes − 1].
-    mask: [H, W] int64, 0-indexed GT ∈ [0, n_classes − 1] ∪ {IGNORE_LABEL}.
-      (Dataset converts the raw 1-indexed ADE20K PNG by `.long() - 1` and
-      remaps former-background `< 0` to IGNORE_LABEL — see
-      `canvit_specialize.datasets.ade20k.ADE20kDataset.__getitem__`.)
-
-    Kept as the reference implementation for the batched variant below.
-    """
-    valid = mask != IGNORE_LABEL
-    p, t_gt = pred[valid], mask[valid]
-    cm = torch.histc(
-        (p * n_classes + t_gt).float(),
-        bins=n_classes * n_classes, min=0, max=n_classes * n_classes - 1,
-    ).reshape(n_classes, n_classes)
-    inter = cm.diag()
-    union = cm.sum(1) + cm.sum(0) - inter
-    return inter, union, cm.sum(0)  # gt_area = col sums
-
-
 def _batch_confusion(
     preds: torch.Tensor,
     masks: torch.Tensor,

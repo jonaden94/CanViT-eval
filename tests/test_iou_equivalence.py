@@ -15,13 +15,32 @@ import numpy as np
 import pytest
 import torch
 
-from canvit_eval.tasks.ade20k_obj.iou import _batch_confusion, _per_image_iou
+from canvit_eval.tasks.ade20k_obj.iou import _batch_confusion
 
 try:
     from canvit_specialize.datasets.ade20k import IGNORE_LABEL, NUM_CLASSES
 except ImportError:  # pragma: no cover — dep-free import path for CPU-only CI
     IGNORE_LABEL = 255
     NUM_CLASSES = 150
+
+
+# Reference implementation kept here (not in production) — used only to pin the
+# historical float32-precision behavior of torch.histc at n_classes=150. See
+# `test_histc_has_precision_drift_at_high_bins` below.
+def _per_image_iou_histc_ref(
+    pred: torch.Tensor,
+    mask: torch.Tensor,
+    n_classes: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    valid = mask != IGNORE_LABEL
+    p, t_gt = pred[valid], mask[valid]
+    cm = torch.histc(
+        (p * n_classes + t_gt).float(),
+        bins=n_classes * n_classes, min=0, max=n_classes * n_classes - 1,
+    ).reshape(n_classes, n_classes)
+    inter = cm.diag()
+    union = cm.sum(1) + cm.sum(0) - inter
+    return inter, union, cm.sum(0)
 
 
 def _numpy_reference(preds: np.ndarray, masks: np.ndarray, n_classes: int):
@@ -44,10 +63,10 @@ def _numpy_reference(preds: np.ndarray, masks: np.ndarray, n_classes: int):
 
 
 def _torch_histc_reference(preds: torch.Tensor, masks: torch.Tensor, n_classes: int):
-    """Loop-based histc reference (Sabrina's original `_per_image_iou` per image)."""
+    """Loop-based histc reference (Sabrina's original per-image impl)."""
     inter, union, gt = [], [], []
     for i in range(preds.shape[0]):
-        i_i, u_i, g_i = _per_image_iou(preds[i], masks[i], n_classes)
+        i_i, u_i, g_i = _per_image_iou_histc_ref(preds[i], masks[i], n_classes)
         inter.append(i_i)
         union.append(u_i)
         gt.append(g_i)

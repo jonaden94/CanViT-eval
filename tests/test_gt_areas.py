@@ -7,8 +7,13 @@ from canvit_eval.tasks.ade20k_obj.gt_areas import (
     MAX_CLASS_IDX,
     MIN_CLASS_IDX,
     _BINCOUNT_BINS,
-    compute_class_area,
 )
+
+
+# Reference impl — lives in the test file only (production uses the bincount
+# path). Kept to pin the numerical equivalence.
+def _per_class_area_ref(ann: np.ndarray, class_idx: int) -> float:
+    return float((ann == class_idx).sum() / ann.size)
 
 
 def _bincount_areas(arr: np.ndarray) -> dict[int, float]:
@@ -24,7 +29,7 @@ def _per_class_areas(arr: np.ndarray) -> dict[int, float]:
     for c in np.unique(arr).tolist():
         if c < MIN_CLASS_IDX or c > MAX_CLASS_IDX:
             continue
-        out[int(c)] = compute_class_area(arr, c)
+        out[int(c)] = _per_class_area_ref(arr, c)
     return out
 
 
