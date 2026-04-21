@@ -217,9 +217,10 @@ def _draw_canvit_vs_dino_panel(
     row_title: str,
 ) -> None:
     pct_fmt = mticker.PercentFormatter(xmax=1, decimals=1)
-    cmap = plt.get_cmap("tab10")
+    n = len(cv_dino_curves)
+    cmap = plt.get_cmap("tab10" if n <= 10 else "tab20")
     for i, ((canvas_res, dino_res), (smooth, ci_lo, ci_hi)) in enumerate(sorted(cv_dino_curves.items())):
-        color = cmap(i / 10)
+        color = cmap(i / max(n - 1, 1))
         label = f"c{canvas_res} − {dino_res}px"
         ax.plot(x_grid, smooth, color=color, linewidth=1.5, label=label)
         ax.fill_between(x_grid, ci_lo, ci_hi, color=color, alpha=0.15)
@@ -240,7 +241,9 @@ def plot(cfg: Config) -> None:
     pairs = _parse_pairs(cfg.canvit_vs_dino_pairs)
 
     dv3_df = pd.read_parquet(cfg.input_dv3)
+    dv3_df["iou"] = dv3_df["inter_px"] / dv3_df["union_px"]
     canvit_df = pd.read_parquet(cfg.input_canvit)
+    canvit_df["iou"] = canvit_df["inter_px"] / canvit_df["union_px"]
 
     t_last = canvit_df["timestep"].max()
     canvit_t0   = canvit_df[canvit_df["timestep"] == 0].copy()
@@ -250,7 +253,8 @@ def plot(cfg: Config) -> None:
     x_min, x_max = all_areas.min(), all_areas.max()
     x_grid = np.linspace(x_min, x_max, cfg.n_grid)
 
-    dv3_lo, dv3_hi = 128, 512
+    dv3_resolutions = sorted(dv3_df["resolution"].unique().tolist())
+    dv3_lo, dv3_hi = dv3_resolutions[0], dv3_resolutions[-1]
     canvit_resolutions = sorted(canvit_df["canvas_resolution"].unique().tolist())
     cv_lo, cv_hi = canvit_resolutions[0], canvit_resolutions[-1]
 
