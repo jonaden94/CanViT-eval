@@ -28,7 +28,7 @@ import torch.nn.functional as F
 import tyro
 from canvit_pytorch import CanViTForSemanticSegmentation, SegmentationProbe
 from canvit_specialize.datasets.ade20k import (
-    IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, make_val_transforms,
+    IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms,
 )
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -58,6 +58,8 @@ DEFAULT_AREA_PARQUET = DEFAULT_EXPORTS_DIR / "ade20k_df_flat.parquet"
 @dataclass(kw_only=True)
 class BaseConfig(TaskConfig):
     scene_size: int = 512
+    resize_mode: ResizeMode = "squish"
+    """How masks are fit to scene_size: 'squish' or 'center_crop'."""
     area_parquet: Path = DEFAULT_AREA_PARQUET
 
 
@@ -80,7 +82,7 @@ class CanViTConfig(BaseConfig):
     """Canvas resolutions to process, e.g. [8 16 32 64]. Each appends to output parquet."""
     model_repo: str = field(default_factory=lambda: EpisodeConfig().model_repo)
     glimpse_resolution: int = 128
-    n_timesteps: int = 10
+    n_timesteps: int = 21
     """Episode length. Timesteps 0..n_timesteps-1 are stored (0-indexed)."""
     ade20k_root_path: Path = field(default_factory=ade20k_root)
 
@@ -129,17 +131,33 @@ def _to_long_df(
     union: torch.Tensor,  # [N, C]
     gt_area: torch.Tensor,  # [N, C]
     extra_cols: dict,
+    mask_resolution: int | None = None,
+    resize_mode: str | None = None,
 ) -> pd.DataFrame:
-    """Vectorised: one row per (image, class) where union > 0."""
-    iou = inter / (union + 1e-8)
+    """Vectorised: one row per (image, class) where union > 0.
+
+    CanViT rows store raw int64 pixel counts (inter_px, union_px, gt_area_px)
+    plus provenance columns (mask_resolution, resize_mode) so rows from
+    different runs remain interpretable after concatenation.
+    DINOv3 rows (mask_resolution=None) store derived iou as float32.
+    """
     img_idx, c0 = (union > 0).nonzero(as_tuple=True)
-    return pd.DataFrame({
+    d: dict = {
         "image_idx": img_idx.numpy(),
         "class_idx": (c0 + 1).numpy(),  # 0→1-indexed to match area parquet
         **{k: v for k, v in extra_cols.items()},
-        "iou": iou[img_idx, c0].numpy().astype(np.float32),
-        "gt_area_px": gt_area[img_idx, c0].numpy().astype(np.int32),
-    })
+        "gt_area_px": gt_area[img_idx, c0].numpy().astype(np.int64),
+    }
+    if mask_resolution is not None:
+        # CanViT: store raw counts + provenance; iou is derived on read
+        d["inter_px"] = inter[img_idx, c0].numpy().astype(np.int64)
+        d["union_px"] = union[img_idx, c0].numpy().astype(np.int64)
+        d["mask_resolution"] = mask_resolution
+        d["resize_mode"] = resize_mode
+    else:
+        # DINOv3: keep derived iou (mask resolution fixed at 512 by features.pt)
+        d["iou"] = (inter / (union + 1e-8))[img_idx, c0].numpy().astype(np.float32)
+    return pd.DataFrame(d)
 
 
 # ── DINOv3 ───────────────────────────────────────────────────────────────────
@@ -163,6 +181,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
         feats_all: torch.Tensor = data["feats"]   # [N, grid*grid, D]
         masks_all: torch.Tensor = data["masks"]   # [N, H, W]
         grid: int = data["grid"]
+        mask_res: int = data["scene_size"]
         N = feats_all.shape[0]
 
         probe = SegmentationProbe.from_pretrained(
@@ -181,8 +200,8 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
             masks = masks_all[start:end].to(device).long()
             B = feats.shape[0]
             logits = probe(feats.view(B, grid, grid, -1).float())
-            if logits.shape[-1] != masks.shape[-1]:
-                logits = F.interpolate(logits, size=masks.shape[-2:], mode="bilinear", align_corners=False)
+            if logits.shape[-1] != mask_res:
+                logits = F.interpolate(logits, size=(mask_res, mask_res), mode="bilinear", align_corners=False)
             preds = logits.argmax(dim=1)
             for i in range(B):
                 inter, union, gt_area = _per_image_iou(preds[i], masks[i], C)
@@ -191,7 +210,9 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
                 gt_area_all[start + i] = gt_area.cpu()
 
         _miou_sanity(inter_all, union_all, f"{res}px")
-        df = _to_long_df(inter_all, union_all, gt_area_all, {"resolution": res})
+        df = _to_long_df(inter_all, union_all, gt_area_all, {"resolution": res},
+                         mask_resolution=mask_res,
+                         resize_mode=data.get("resize_mode", cfg.resize_mode))
         frames.append(df)
         log.info("  %dpx: %d (image, class) pairs", res, len(df))
 
@@ -217,7 +238,7 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
     probe = seg.head
     log.info("  canvas_grid=%d  probe=%s", canvas_grid, probe_repo)
 
-    img_tf, mask_tf = make_val_transforms(cfg.scene_size, "squish")
+    img_tf, mask_tf = make_val_transforms(cfg.scene_size, cfg.resize_mode)
     dataset = ADE20kDataset(
         root=cfg.ade20k_root_path, split="validation",
         img_transform=img_tf, mask_transform=mask_tf,
@@ -261,7 +282,7 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
             spatial = seg.canvit.get_spatial(step.state.canvas).view(B, canvas_grid, canvas_grid, -1)
             logits = probe(spatial.float())
             if logits.shape[-1] != masks_dev.shape[-1]:
-                logits = F.interpolate(logits, size=masks_dev.shape[-2:], mode="bilinear", align_corners=False)
+                logits = F.interpolate(logits, size=(cfg.scene_size, cfg.scene_size), mode="bilinear", align_corners=False)
             preds = logits.argmax(dim=1)
 
             for i in range(B):
@@ -280,7 +301,7 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
         df = _to_long_df(inter_all[t], union_all[t], gt_area_all, {
             "canvas_resolution": canvas_grid,
             "timestep": t,  # 0-indexed: 0..T-1
-        })
+        }, mask_resolution=cfg.scene_size, resize_mode=cfg.resize_mode)
         frames.append(df)
 
     return pd.concat(frames, ignore_index=True)
@@ -298,6 +319,7 @@ def run_canvit(cfg: CanViTConfig) -> Path:
     area_df = _load_area_df(cfg.area_parquet)
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
 
+    combined = pd.DataFrame()
     for cr in cfg.canvas_resolutions:
         # Reload parquet each iteration so partial results survive failures
         if cfg.output.exists():
@@ -317,7 +339,7 @@ def run_canvit(cfg: CanViTConfig) -> Path:
     sidecar = cfg.output.with_suffix(".json")
     meta = {
         "model_repo": cfg.model_repo,
-        "canvas_resolutions_in_parquet": sorted(int(c) for c in combined["canvas_resolution"].unique()),
+        "canvas_resolutions_in_parquet": sorted(int(c) for c in combined["canvas_resolution"].unique()) if not combined.empty else [],
         "canvas_resolutions_this_run": cfg.canvas_resolutions,
         "n_timesteps": cfg.n_timesteps,
         "scene_size": cfg.scene_size,
