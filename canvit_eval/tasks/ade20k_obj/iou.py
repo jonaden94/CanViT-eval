@@ -57,6 +57,10 @@ def _git_commit() -> str:
 def _canvas_policy(canvas_grid: int) -> str:
     return "entropy_coarse_to_fine" if (canvas_grid & (canvas_grid - 1)) == 0 else "coarse_to_fine"
 
+# Upsample-chunk size: bound peak memory at ~1.25 GB regardless of canvas_grid
+# (8 × 150 classes × 512² × 4 B). Larger batches get chunked; smaller stay whole.
+_UPSAMPLE_CHUNK = 8
+
 DV3_PROBE_REPO_TEMPLATE = "canvit/probe-ade20k-40k-dv3b-{resolution}px"
 CANVIT_PROBE_REPOS: dict[int, str] = {
     8:  "canvit/probe-ade20k-40k-s512-c8-in21k",
@@ -121,8 +125,13 @@ def _per_image_iou(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Histc confusion matrix → (inter, union, gt_area), each [n_classes].
 
-    pred: [H, W] int64, 0-indexed class predictions.
-    mask: [H, W] int64, 1-indexed GT; IGNORE_LABEL excluded from the confusion.
+    pred: [H, W] int64, 0-indexed class predictions ∈ [0, n_classes − 1].
+    mask: [H, W] int64, 0-indexed GT ∈ [0, n_classes − 1] ∪ {IGNORE_LABEL}.
+      (Dataset converts the raw 1-indexed ADE20K PNG by `.long() - 1` and
+      remaps former-background `< 0` to IGNORE_LABEL — see
+      `canvit_specialize.datasets.ade20k.ADE20kDataset.__getitem__`.)
+
+    Kept as the reference implementation for the batched variant below.
     """
     valid = mask != IGNORE_LABEL
     p, t_gt = pred[valid], mask[valid]
@@ -133,6 +142,51 @@ def _per_image_iou(
     inter = cm.diag()
     union = cm.sum(1) + cm.sum(0) - inter
     return inter, union, cm.sum(0)  # gt_area = col sums
+
+
+def _batch_confusion(
+    preds: torch.Tensor,
+    masks: torch.Tensor,
+    n_classes: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Per-image (inter, union, gt_area) for a full batch in ONE kernel.
+
+    preds: [B, H, W] int64, 0-indexed class predictions ∈ [0, n_classes − 1].
+    masks: [B, H, W] int64, 0-indexed GT ∈ [0, n_classes − 1] ∪ {IGNORE_LABEL}.
+
+    Each output is [B, n_classes] float32 (matches `_per_image_iou`'s dtype
+    via torch.histc, which returns float regardless of input dtype).
+
+    Equivalence with the per-image reference — proof-by-construction:
+      • histc drops values outside [0, n_classes² − 1]; same range filter here
+        via `(pair >= 0) & (pair < n_classes²)`.
+      • IGNORE_LABEL filter identical.
+      • Surviving entries accumulate into the same flat bin; scatter_add on a
+        per-image offset (`b · n_classes²`) isolates per-image confusions.
+
+    Test: `tests/test_iou_equivalence.py` pins the bit-level match on random
+    inputs that exercise the IGNORE_LABEL + out-of-range corner cases.
+    """
+    B, H, W = preds.shape
+    assert masks.shape == preds.shape, (preds.shape, masks.shape)
+    assert preds.dtype == torch.int64 and masks.dtype == torch.int64, (preds.dtype, masks.dtype)
+    device = preds.device
+    C2 = n_classes * n_classes
+
+    pair = preds * n_classes + masks  # [B, H, W]
+    keep = (masks != IGNORE_LABEL) & (pair >= 0) & (pair < C2)
+    img_idx = torch.arange(B, device=device).view(B, 1, 1).expand_as(preds)
+    flat = (img_idx * C2 + pair)[keep]  # [K]
+
+    cm = torch.zeros(B * C2, dtype=torch.float32, device=device)
+    cm.scatter_add_(0, flat, torch.ones_like(flat, dtype=torch.float32))
+    cm = cm.view(B, n_classes, n_classes)
+
+    inter = cm.diagonal(dim1=1, dim2=2)             # [B, C]
+    row_sum = cm.sum(dim=2)                         # [B, C]   (pred rows)
+    col_sum = cm.sum(dim=1)                         # [B, C]   (gt cols)
+    union = row_sum + col_sum - inter
+    return inter, union, col_sum                    # gt_area = col sums
 
 
 def _load_area_df(path: Path) -> pd.DataFrame:
@@ -247,11 +301,10 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
             if logits.shape[-1] != mask_res_px:
                 logits = F.interpolate(logits, size=(mask_res_px, mask_res_px), mode="bilinear", align_corners=False)
             preds = logits.argmax(dim=1)
-            for i in range(B):
-                inter, union, gt_area = _per_image_iou(preds[i], masks[i], n_classes)
-                inter_all[start + i] = inter.cpu()
-                union_all[start + i] = union.cpu()
-                gt_area_all[start + i] = gt_area.cpu()
+            inter, union, gt_area = _batch_confusion(preds, masks, n_classes)
+            inter_all[start:end] = inter.cpu()
+            union_all[start:end] = union.cpu()
+            gt_area_all[start:end] = gt_area.cpu()
 
         _miou_sanity(inter_all, union_all, f"{res_px}px")
         df = _to_long_df(
@@ -359,20 +412,30 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
             spatial = seg.canvit.get_spatial(step.state.canvas).view(B, canvas_grid, canvas_grid, -1)
             logits = probe(spatial.float())
             assert logits.ndim == 4 and logits.shape[0] == B, logits.shape
-            needs_upsample = logits.shape[-1] != masks_dev.shape[-1]
 
-            for i in range(B):
-                # Interpolate one image at a time — full-batch upsample to 512² OOMs at large canvas_grid.
-                logit_i = logits[i : i + 1]
-                if needs_upsample:
-                    logit_i = F.interpolate(logit_i, size=(cfg.scene_size_px, cfg.scene_size_px), mode="bilinear", align_corners=False)
-                pred_i = logit_i.argmax(dim=1)[0]
-                inter, union, gt_area = _per_image_iou(pred_i, masks_dev[i], n_classes)
-                inter_all[step.t, img_start + i] = inter.cpu()
-                union_all[step.t, img_start + i] = union.cpu()
-                if step.t == 0:
-                    gt_area_all[img_start + i] = gt_area.cpu()
-            del logits
+            # Chunked upsample keeps peak memory bounded. Upsampling the full
+            # batch to 512² at canvas_grid=64 × B=32 is ~5 GB; 8-at-a-time is
+            # ~1.25 GB peak regardless of canvas_grid.
+            if logits.shape[-1] != masks_dev.shape[-1]:
+                preds = torch.empty((B, cfg.scene_size_px, cfg.scene_size_px),
+                                     dtype=torch.int64, device=device)
+                for c0 in range(0, B, _UPSAMPLE_CHUNK):
+                    c1 = min(c0 + _UPSAMPLE_CHUNK, B)
+                    up = F.interpolate(
+                        logits[c0:c1], size=(cfg.scene_size_px, cfg.scene_size_px),
+                        mode="bilinear", align_corners=False,
+                    )
+                    preds[c0:c1] = up.argmax(dim=1)
+            else:
+                preds = logits.argmax(dim=1)
+
+            # One scatter_add for the whole batch (replaces B per-image histc calls).
+            inter, union, gt_area = _batch_confusion(preds, masks_dev, n_classes)
+            inter_all[step.t, img_start:img_start + B] = inter.cpu()
+            union_all[step.t, img_start:img_start + B] = union.cpu()
+            if step.t == 0:
+                gt_area_all[img_start:img_start + B] = gt_area.cpu()
+            del logits, preds
 
         img_start += B
 
