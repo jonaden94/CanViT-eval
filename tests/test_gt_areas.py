@@ -24,7 +24,7 @@ def _bincount_areas(arr: np.ndarray) -> dict[int, float]:
 
 
 def _per_class_areas(arr: np.ndarray) -> dict[int, float]:
-    """Reference: one `(arr == c).sum()` per class — Sabrina's original."""
+    """Reference: one `(arr == c).sum()` per class (pre-bincount path)."""
     out: dict[int, float] = {}
     for c in np.unique(arr).tolist():
         if c < MIN_CLASS_IDX or c > MAX_CLASS_IDX:

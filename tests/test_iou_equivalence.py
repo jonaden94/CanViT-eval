@@ -5,10 +5,9 @@ The authoritative reference is an integer-exact numpy implementation using
 indices (which bites at (n_classes, n_classes)=(150, 150)² = 22500 bins).
 
 `_batch_confusion` is validated against that numpy reference with
-bit-identical equality. `_per_image_iou` (histc-based, Sabrina's original)
-is ALSO validated, but with a small tolerance at the extremes — see
-`test_histc_has_precision_drift_at_high_bins` for the explicit documentation
-of the float-rounding bug that motivated the rewrite.
+bit-identical equality. A pre-vectorization histc reference (test-local)
+is ALSO validated to document the float-rounding drift that motivated the
+rewrite — see `test_histc_has_precision_drift_at_high_bins`.
 """
 
 import numpy as np
@@ -63,7 +62,7 @@ def _numpy_reference(preds: np.ndarray, masks: np.ndarray, n_classes: int):
 
 
 def _torch_histc_reference(preds: torch.Tensor, masks: torch.Tensor, n_classes: int):
-    """Loop-based histc reference (Sabrina's original per-image impl)."""
+    """Loop-based histc reference (pre-vectorization per-image impl)."""
     inter, union, gt = [], [], []
     for i in range(preds.shape[0]):
         i_i, u_i, g_i = _per_image_iou_histc_ref(preds[i], masks[i], n_classes)
