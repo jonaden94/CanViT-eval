@@ -1,62 +1,59 @@
-# ADE20K Object Analysis
+# ADE20K Object/Mask Analysis
 
-Steps to generate `dv3_ade20k_per_image.parquet` and `canvit_ade20k_per_image.parquet`, which are consumed by the CanViT-Toward-AVFMs repo.
+Produces per-(image, class) and per-(image, class, timestep) intersection/union counts for the ADE20K val set, feeding the object-size analysis figure: "when/why does CanViT beat DINOv3, by mask size?"
 
-## Step 1: Export DINOv3 patch features
+## Quickstart
 
-Run `export_dv3_features.py` to extract DINOv3 features for ADE20K validation images. Features are saved to `output/dv3_features/{resolution}px_features.pt`.
+```bash
+uv run python -m canvit_eval.tasks.ade20k_obj
+```
 
-To export all supported resolutions (128, 144, 160, 192, 256, 384, 512) in one go:
+Runs the full pipeline in order, skipping any step whose outputs already exist in `results/`:
+
+1. Export DINOv3 patch features for all resolutions → `results/dv3_features/`
+2. Build per-(image, class) area dataframe → `results/ade20k_df_flat.parquet`
+3. Compute per-image IoU for DINOv3 → `results/dv3_ade20k_per_image.parquet`
+4. Compute per-image IoU for CanViT (all canvas resolutions) → `results/canvit_ade20k_per_image.parquet`
+
+The outputs are consumed by CanViT-Toward-AVFMs for object-size binning, LOWESS smoothing, and figure panels.
+
+## Design rationale
+
+**Raw counts, not IoU.** Parquets store `inter_px` and `union_px` (int64 pixel counts), not derived IoU floats. IoU is not reaggregatable: global mIoU = Σ(intersection) / Σ(union) across images, which differs from averaging per-image IoUs. Storing counts lets you compute both. It also avoids 0/0 NaNs when a class is absent from an image.
+
+**Also store `gt_area_px`.** Needed for object-size analysis. It is free to compute in the same pass since the target mask is already loaded.
+
+**No binning in eval.** Raw counts are saved; binning (bin count, linear vs log, bin edges) is a figure-level decision handled downstream in CanViT-Toward-AVFMs. This avoids re-running eval every time the figure changes.
+
+**Sanity check.** After running, verify: `mean over c of (Σ inter[:,c]) / (Σ union[:,c])` matches the headline mIoU from `ade20k_seg.py`. If it doesn't, something is wrong.
+
+## Running individual steps
+
+Each step can also be run standalone if needed.
+
+**Step 1 — DINOv3 features** (`results/dv3_features/{resolution}px_features.pt`):
 
 ```bash
 uv run python canvit_eval/tasks/ade20k_obj/export_dv3_features.py --all
+uv run python canvit_eval/tasks/ade20k_obj/export_dv3_features.py --eval-resolution 256  # single resolution
 ```
 
-Or export a single resolution with `--eval-resolution`:
-
-```bash
-uv run python canvit_eval/tasks/ade20k_obj/export_dv3_features.py --eval-resolution 256
-```
-
-## Step 2: Build the area dataframe
-
-Run `dataframe_dataset.py` to compute per-(image, class) pixel-area statistics over the validation set. Outputs `output/ade20k_df_flat.parquet` and `output/ade20k_df_stats.parquet`.
+**Step 2 — Area dataframe** (`results/ade20k_df_flat.parquet`, `results/ade20k_df_stats.parquet`):
 
 ```bash
 uv run python canvit_eval/tasks/ade20k_obj/dataframe_dataset.py
 ```
 
-## Step 3: Compute per-image IoU
-
-Run `dataframe_iou_mask_size.py` to produce the final parquets.
-
-**DINOv3** (uses pre-extracted features from Step 1):
+**Step 3 — Per-image IoU:**
 
 ```bash
+# DINOv3
 uv run python canvit_eval/tasks/ade20k_obj/dataframe_iou_mask_size.py dinov3
-```
 
-Output: `output/dv3_ade20k_per_image.parquet`
-
-**CanViT** (runs episodes on the fly):
-
-To run all supported canvas resolutions (8, 9, 10, 12, 16, 24, 32, 64) in batches of 3:
-
-```bash
+# CanViT — all canvas resolutions (runs in subprocess batches to manage GPU memory)
 uv run python canvit_eval/tasks/ade20k_obj/dataframe_iou_mask_size.py canvit --all
-```
 
-Or specify a subset manually:
-
-```bash
+# CanViT — specific resolutions
 uv run python canvit_eval/tasks/ade20k_obj/dataframe_iou_mask_size.py canvit \
     --canvas-resolutions 8 32 64
 ```
-
-Output: `output/canvit_ade20k_per_image.parquet`
-
-For DINOv3:
-```bash
-uv run python canvit_eval/tasks/ade20k_obj/dataframe_iou_mask_size.py dinov3
-```
-Output: `output/dv3_ade20k_per_image.parquet`
