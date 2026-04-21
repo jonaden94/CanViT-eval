@@ -16,7 +16,6 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Union
 
@@ -33,6 +32,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from canvit_eval.config import EpisodeConfig, ade20k_root
+from canvit_eval.provenance import device_info, provenance
 from canvit_eval.runner import eval_batches
 from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
 from canvit_eval.tasks.ade20k_obj.paths import (
@@ -45,13 +45,6 @@ from canvit_eval.tasks.ade20k_obj.paths import (
 from canvit_eval.tasks.base import TaskConfig
 
 log = logging.getLogger(__name__)
-
-
-def _git_commit() -> str:
-    try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    except Exception:
-        return "unknown"
 
 
 def _canvas_policy(canvas_grid: int) -> str:
@@ -198,23 +191,14 @@ def _to_long_df(
 ) -> pd.DataFrame:
     """Vectorised: one row per (image, class) where the class is in the GT.
 
-    inter / union / gt_area are all [N, n_classes]. Filter: `gt_area > 0`
-    (class actually present in this image's ground truth). This includes:
-      • TP-bearing rows: class is in GT and has nonzero prediction overlap —
-        iou = inter/union ∈ (0, 1].
-      • FN-only rows: class is in GT but the model missed it entirely —
-        iou = 0, area = known.
-    And excludes:
-      • FP-only rows (class NOT in GT, model predicted it anyway): iou would
-        be 0 and area undefined (no GT pixels → no entry in area_df). These
-        rows are pure noise for the downstream LOWESS(area, iou) fit and
-        would contaminate the smooth via statsmodels' default `missing='none'`
-        handling. The confusion counts for FP classes still live in the
-        full confusion tensor; they're just not emitted to this long-form.
+    inter / union / gt_area are all [N, n_classes]. Filter: `gt_area > 0`.
+    That keeps TP-bearing rows and FN-only rows (class in GT, iou = 0 at
+    known area); drops FP-only rows (class NOT in GT, no area coordinate).
+    FP counts still live in the in-memory [B, C, C] tensor — only the
+    long-form emission is scoped to "iou vs GT mask area".
 
-    Stores raw int64 pixel counts (inter_px, union_px, gt_area_px) so rows
-    from different runs remain interpretable after concatenation; the
-    downstream consumer derives iou as `inter_px / union_px` on read.
+    Stores raw int64 pixel counts (inter_px, union_px, gt_area_px). The
+    downstream consumer derives iou as inter_px / union_px on read.
     `mask_resolution_px` + `resize_mode` travel with each row as provenance.
     """
     assert inter.shape == union.shape == gt_area.shape, (inter.shape, union.shape, gt_area.shape)
@@ -329,16 +313,20 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
 
     sidecar = cfg.output.with_suffix(".json")
     meta: dict[str, Any] = {
+        "stage": "dinov3_iou",
         "resolutions_px": cfg.resolutions_px,
         "teacher_repos": sorted(teacher_repos_seen),
         "probe_repos": {r: DV3_PROBE_REPO_TEMPLATE.format(resolution=r) for r in cfg.resolutions_px},
         "exports_dir": str(cfg.exports_dir),
         "scene_size_px": cfg.scene_size_px,
         "resize_mode": cfg.resize_mode,
+        "batch_size": cfg.batch_size,
+        "amp": cfg.amp,
+        "n_images": int(merged["image_idx"].nunique()),
         "n_rows": len(merged),
         "n_classes_with_data": int(merged["class_idx"].nunique()),
-        "git_commit": _git_commit(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **device_info(device),
+        **provenance(),
     }
     sidecar.write_text(json.dumps(meta, indent=2))
     log.info("sidecar → %s", sidecar)
@@ -487,10 +475,16 @@ def _build_subprocess_cmd(cfg: CanViTConfig, canvas_resolution: int) -> list[str
     return cmd
 
 
-def _write_canvit_sidecar(cfg: CanViTConfig, resolutions_in_parquet: list[int]) -> None:
+def _write_canvit_sidecar(
+    cfg: CanViTConfig,
+    *,
+    resolutions_in_parquet: list[int],
+    device: torch.device | None,
+) -> None:
     sidecar = cfg.output.with_suffix(".json")
     existing = pd.read_parquet(cfg.output) if cfg.output.exists() else pd.DataFrame()
     meta: dict[str, Any] = {
+        "stage": "canvit_iou",
         "model_repo": cfg.model_repo,
         "canvas_resolutions_in_parquet": resolutions_in_parquet,
         "probe_repos": {cr: CANVIT_PROBE_REPOS[cr] for cr in resolutions_in_parquet if cr in CANVIT_PROBE_REPOS},
@@ -499,11 +493,15 @@ def _write_canvit_sidecar(cfg: CanViTConfig, resolutions_in_parquet: list[int]) 
         "scene_size_px": cfg.scene_size_px,
         "resize_mode": cfg.resize_mode,
         "glimpse_resolution_px": cfg.glimpse_resolution_px,
+        "batch_size": cfg.batch_size,
+        "amp": cfg.amp,
+        "ade20k_root": str(cfg.ade20k_root_path),
+        **device_info(device),
+        "n_images": int(existing["image_idx"].nunique()) if not existing.empty else 0,
         "n_rows": int(len(existing)),
         "n_classes_with_data": int(existing["class_idx"].nunique()) if not existing.empty else 0,
         "timesteps_in_parquet": sorted(int(t) for t in existing["timestep"].unique()) if not existing.empty else [],
-        "git_commit": _git_commit(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **provenance(),
     }
     sidecar.write_text(json.dumps(meta, indent=2))
     log.info("sidecar → %s", sidecar)
@@ -546,7 +544,7 @@ def run_canvit(cfg: CanViTConfig) -> Path:
         log.info("all %d subprocesses done in %.1fs  (parquet: %d rows, %d canvases)",
                  len(cfg.canvas_resolutions), time.monotonic() - t0,
                  len(existing), len(resolutions_in_parquet))
-        _write_canvit_sidecar(cfg, resolutions_in_parquet)
+        _write_canvit_sidecar(cfg, resolutions_in_parquet=resolutions_in_parquet, device=None)
         return cfg.output
 
     # Single canvas: run in-process.
@@ -581,7 +579,11 @@ def run_canvit(cfg: CanViTConfig) -> Path:
              combined["canvas_resolution"].nunique(),
              cfg.output.stat().st_size / 1e6)
 
-    _write_canvit_sidecar(cfg, sorted(int(c) for c in combined["canvas_resolution"].unique()))
+    _write_canvit_sidecar(
+        cfg,
+        resolutions_in_parquet=sorted(int(c) for c in combined["canvas_resolution"].unique()),
+        device=device,
+    )
     return cfg.output
 
 

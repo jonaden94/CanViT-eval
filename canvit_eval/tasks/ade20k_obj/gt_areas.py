@@ -8,6 +8,7 @@ Both are consumed downstream by `iou` (this package) and by the mask-size figure
 (plotting/figures/resolution_and_mask_size_analysis.py in CanViT-Toward-AVFMs).
 """
 
+import json
 import logging
 import time
 import urllib.request
@@ -18,6 +19,7 @@ import pandas as pd
 from PIL import Image
 
 from canvit_eval.config import ade20k_root
+from canvit_eval.provenance import provenance
 from canvit_eval.tasks.ade20k_obj.paths import (
     AREA_PARQUET,
     AREA_STATS_PARQUET,
@@ -158,6 +160,7 @@ def main() -> None:
     log.info("built in %.1fs", time.monotonic() - t0)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    AREA_PARQUET.parent.mkdir(parents=True, exist_ok=True)
     flat_df.to_parquet(AREA_PARQUET, compression="snappy")
     stats_df.to_parquet(AREA_STATS_PARQUET, compression="snappy")
     log.info(
@@ -168,6 +171,16 @@ def main() -> None:
         "wrote %s (%.1f KB, %d class rows)",
         AREA_STATS_PARQUET, AREA_STATS_PARQUET.stat().st_size / 1e3, len(stats_df),
     )
+    sidecar = AREA_PARQUET.with_suffix(".json")
+    sidecar.write_text(json.dumps({
+        "stage": "gt_areas",
+        "ade20k_root": str(root),
+        "n_images": int(flat_df["image_idx"].nunique()),
+        "n_rows": len(flat_df),
+        "n_classes_with_data": int(flat_df["class_idx"].nunique()),
+        **provenance(),
+    }, indent=2))
+    log.info("sidecar → %s", sidecar)
 
 
 if __name__ == "__main__":
