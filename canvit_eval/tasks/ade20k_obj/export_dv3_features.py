@@ -92,11 +92,20 @@ def main(cfg: ExportFeaturesConfig) -> None:
             feats = teacher.forward_norm_features(resized).patches
             assert feats.shape == (B, grid * grid, embed_dim), feats.shape
 
-            feats_all[batch_start : batch_start + B].copy_(feats.float())
-            masks_all[batch_start : batch_start + B].copy_(masks.to(torch.uint8))
+            # GPU → pinned-CPU copies with non_blocking=True are queued on the
+            # CUDA stream; the pinned buffer is filled asynchronously by the
+            # DMA engine. Keeps the loop off the critical path.
+            feats_all[batch_start : batch_start + B].copy_(feats.float(), non_blocking=True)
+            masks_all[batch_start : batch_start + B].copy_(masks.to(torch.uint8), non_blocking=True)
             for i in range(B):
                 image_names[batch_start + i] = dataset.images[batch_start + i].stem
             batch_start += B
+
+    # Required for correctness: torch.save below reads feats_all/masks_all
+    # directly, and those bytes are written by the async DMA queued above.
+    # Without this sync, the save can race the copies and serialize garbage.
+    if device.type == "cuda":
+        torch.cuda.synchronize()
 
     log.info("saving %s ...", out_path)
     torch.save({
