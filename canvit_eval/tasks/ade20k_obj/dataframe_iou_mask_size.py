@@ -95,8 +95,9 @@ class DINOv3Config(BaseConfig):
 class CanViTConfig(BaseConfig):
     """On-the-fly CanViT episodes (EG-C2F) → per-(image, class, timestep) IoU.
 
-    Parquet columns: image_idx, class_idx, gt_area_px, inter_px, union_px,
-    canvas_resolution, timestep, mask_resolution, resize_mode.
+    Parquet columns (see _to_long_df): image_idx, class_idx, canvas_resolution,
+    timestep, inter_px, union_px, gt_area_px, mask_resolution_px, resize_mode
+    — plus area + class_name joined from AREA_PARQUET before write.
     """
 
     output: Path = CANVIT_PARQUET
@@ -152,33 +153,29 @@ def _to_long_df(
     union: torch.Tensor,
     gt_area: torch.Tensor,
     extra_cols: dict,
-    mask_resolution_px: int | None = None,
-    resize_mode: str | None = None,
+    mask_resolution_px: int,
+    resize_mode: str,
 ) -> pd.DataFrame:
     """Vectorised: one row per (image, class) where union > 0.
 
-    inter / union / gt_area are all [N, n_classes].
-    CanViT rows (mask_resolution_px set) store raw int64 pixel counts + provenance
-    (mask_resolution_px, resize_mode) so rows from different runs remain
-    interpretable after concatenation. DINOv3 rows store derived iou as float32
-    (mask resolution is fixed at 512 by features.pt).
+    inter / union / gt_area are all [N, n_classes]. Stores raw int64 pixel
+    counts (inter_px, union_px, gt_area_px) so rows from different runs remain
+    interpretable after concatenation; the downstream consumer derives iou as
+    `inter_px / union_px` on read. `mask_resolution_px` + `resize_mode` travel
+    with each row as provenance for how the prediction / GT mask were sized.
     """
     assert inter.shape == union.shape == gt_area.shape, (inter.shape, union.shape, gt_area.shape)
     img_idx, c0 = (union > 0).nonzero(as_tuple=True)
-    d: dict = {
+    return pd.DataFrame({
         "image_idx": img_idx.numpy(),
         "class_idx": (c0 + 1).numpy(),  # 0→1-indexed to match area parquet
         **{k: v for k, v in extra_cols.items()},
+        "inter_px": inter[img_idx, c0].numpy().astype(np.int64),
+        "union_px": union[img_idx, c0].numpy().astype(np.int64),
         "gt_area_px": gt_area[img_idx, c0].numpy().astype(np.int64),
-    }
-    if mask_resolution_px is not None:
-        d["inter_px"] = inter[img_idx, c0].numpy().astype(np.int64)
-        d["union_px"] = union[img_idx, c0].numpy().astype(np.int64)
-        d["mask_resolution_px"] = mask_resolution_px
-        d["resize_mode"] = resize_mode
-    else:
-        d["iou"] = (inter / (union + 1e-8))[img_idx, c0].numpy().astype(np.float32)
-    return pd.DataFrame(d)
+        "mask_resolution_px": mask_resolution_px,
+        "resize_mode": resize_mode,
+    })
 
 
 # ── DINOv3 ───────────────────────────────────────────────────────────────────

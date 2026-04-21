@@ -36,20 +36,13 @@ class ExportFeaturesConfig:
     out_dir: Path = FEATURES_DIR
 
 
-def _sanity_check_saved(out_path: Path, expected_n_images: int, expected_grid: int, expected_embed_dim: int) -> None:
-    """Reload the .pt we just wrote, assert shapes + key presence."""
-    data = torch.load(out_path, map_location="cpu", weights_only=False)
-    required = {"feats", "masks", "image_names", "grid", "embed_dim",
-                "eval_resolution_px", "scene_size_px", "teacher_repo", "resize_mode"}
-    missing = required - data.keys()
-    assert not missing, f"reloaded .pt missing keys: {missing}"
-    feats, masks = data["feats"], data["masks"]
-    assert feats.shape == (expected_n_images, expected_grid * expected_grid, expected_embed_dim), feats.shape
-    assert masks.shape[0] == expected_n_images, masks.shape
-    assert data["grid"] == expected_grid, (data["grid"], expected_grid)
-    assert data["embed_dim"] == expected_embed_dim, (data["embed_dim"], expected_embed_dim)
-    log.info("reload sanity: feats=%s %s, masks=%s %s, keys=%d",
-             feats.shape, feats.dtype, masks.shape, masks.dtype, len(data))
+def _expected_size_bytes(n_images: int, grid: int, embed_dim: int, scene_size_px: int) -> int:
+    """Lower bound on the .pt size — the two big tensors, ignoring pickle overhead.
+
+    feats:  float32 N × grid² × embed_dim     → 4 bytes each
+    masks:  uint8   N × scene_size_px²        → 1 byte each
+    """
+    return n_images * grid * grid * embed_dim * 4 + n_images * scene_size_px * scene_size_px
 
 
 def main(cfg: ExportFeaturesConfig) -> None:
@@ -155,11 +148,16 @@ def main(cfg: ExportFeaturesConfig) -> None:
         "teacher_repo": cfg.teacher_repo,
         "resize_mode": cfg.resize_mode,
     }, out_path)
-    size_gb = out_path.stat().st_size / 1e9
-    log.info("saved %s  (%.2f GB)", out_path, size_gb)
-    assert size_gb > 0.01, f"output file suspiciously small: {size_gb:.3f} GB"
-
-    _sanity_check_saved(out_path, n_images, grid, embed_dim)
+    actual_bytes = out_path.stat().st_size
+    expected_bytes = _expected_size_bytes(n_images, grid, embed_dim, cfg.scene_size_px)
+    log.info("saved %s  (%.2f GB, expected ≥ %.2f GB)",
+             out_path, actual_bytes / 1e9, expected_bytes / 1e9)
+    # Cheap save-sanity: pickle overhead is small compared to the big tensors,
+    # so actual >= expected ≈ 1.00 is the invariant. Tolerate ±5% for pickle
+    # headers / image_names list / small metadata.
+    assert actual_bytes >= 0.95 * expected_bytes, (
+        f"saved file suspiciously small: {actual_bytes} bytes < 0.95 × {expected_bytes} expected"
+    )
 
 
 if __name__ == "__main__":
