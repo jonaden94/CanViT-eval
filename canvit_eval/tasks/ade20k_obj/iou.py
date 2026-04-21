@@ -149,35 +149,47 @@ def _batch_confusion(
     masks: torch.Tensor,
     n_classes: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Per-image (inter, union, gt_area) for a full batch in ONE kernel.
+    """Per-image (inter, union, gt_area) for a whole batch in a single kernel.
 
-    preds: [B, H, W] int64, 0-indexed class predictions ∈ [0, n_classes − 1].
+    preds: [B, H, W] int64, class prediction ∈ [0, n_classes − 1].
     masks: [B, H, W] int64, 0-indexed GT ∈ [0, n_classes − 1] ∪ {IGNORE_LABEL}.
+      (`canvit_specialize.datasets.ade20k.ADE20kDataset.__getitem__` emits this
+       convention via `.long() - 1` + remap `<0` to IGNORE_LABEL.)
 
-    Each output is [B, n_classes] float32 (matches `_per_image_iou`'s dtype
-    via torch.histc, which returns float regardless of input dtype).
+    Returns three [B, n_classes] float32 tensors. float32 is chosen for
+    compatibility with `_per_image_iou`'s historical dtype AND because
+    per-cell counts max out at H·W = 262144 for 512² masks — well below
+    float32's exact-integer limit (2²³ = 8.4M). If you ever call with
+    H·W > 2²³, promote the accumulator.
 
-    Equivalence with the per-image reference — proof-by-construction:
-      • histc drops values outside [0, n_classes² − 1]; same range filter here
-        via `(pair >= 0) & (pair < n_classes²)`.
-      • IGNORE_LABEL filter identical.
-      • Surviving entries accumulate into the same flat bin; scatter_add on a
-        per-image offset (`b · n_classes²`) isolates per-image confusions.
-
-    Test: `tests/test_iou_equivalence.py` pins the bit-level match on random
-    inputs that exercise the IGNORE_LABEL + out-of-range corner cases.
+    Correctness invariants (all covered by `tests/test_iou_equivalence.py`):
+      • Integer-exact match with numpy.bincount reference — the scatter_add
+        on a per-image offset reproduces a per-image np.bincount exactly.
+      • `(pair >= 0) & (pair < n_classes²)` is defense-in-depth against out
+        -of-bounds predictions / masks; argmax on n_classes-wide logits and
+        the canvit_specialize loader both guarantee in-range inputs. The
+        filter is cheap and catches bugs that would otherwise silently
+        corrupt unrelated bins via scatter_add address wrap-around.
+      • scatter_add is deterministic on integer-valued accumulators (the
+        sum is associative when all summands are exact integers), even
+        though GPU scatter_add is non-deterministic in general.
     """
     B, H, W = preds.shape
     assert masks.shape == preds.shape, (preds.shape, masks.shape)
+    # int64 is what argmax returns + what the dataloader emits; documenting the
+    # contract via assertion (rather than casting) surfaces accidental misuse.
     assert preds.dtype == torch.int64 and masks.dtype == torch.int64, (preds.dtype, masks.dtype)
     device = preds.device
     C2 = n_classes * n_classes
 
-    pair = preds * n_classes + masks  # [B, H, W]
+    pair = preds * n_classes + masks                                     # [B, H, W]
     keep = (masks != IGNORE_LABEL) & (pair >= 0) & (pair < C2)
     img_idx = torch.arange(B, device=device).view(B, 1, 1).expand_as(preds)
-    flat = (img_idx * C2 + pair)[keep]  # [K]
+    flat = (img_idx * C2 + pair)[keep]                                    # [K], int64
 
+    # Materialise the confusion matrix as a flat B·C² buffer (per-image
+    # offset = b·C²), then view as [B, C, C]. scatter_add_ handles duplicate
+    # indices by summing — the natural semantics for confusion accumulation.
     cm = torch.zeros(B * C2, dtype=torch.float32, device=device)
     cm.scatter_add_(0, flat, torch.ones_like(flat, dtype=torch.float32))
     cm = cm.view(B, n_classes, n_classes)
