@@ -21,7 +21,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Union
+from typing import Annotated, Any, Union
 
 import numpy as np
 import pandas as pd
@@ -40,6 +40,17 @@ from canvit_eval.runner import eval_batches
 from canvit_eval.tasks.base import TaskConfig
 
 log = logging.getLogger(__name__)
+
+
+def _git_commit() -> str:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    except Exception:
+        return "unknown"
+
+
+def _canvas_policy(canvas_grid: int) -> str:
+    return "entropy_coarse_to_fine" if (canvas_grid & (canvas_grid - 1)) == 0 else "coarse_to_fine"
 
 DV3_PROBE_REPO_TEMPLATE = "canvit/probe-ade20k-40k-dv3b-{resolution}px"
 CANVIT_PROBE_REPOS: dict[int, str] = {
@@ -229,6 +240,19 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
     merged.to_parquet(cfg.output, index=False)
     log.info("Saved %s  (%d rows, %.1f MB)", cfg.output, len(merged), cfg.output.stat().st_size / 1e6)
+
+    sidecar = cfg.output.with_suffix(".json")
+    meta: dict[str, Any] = {
+        "resolutions": cfg.resolutions,
+        "probe_repos": {res: DV3_PROBE_REPO_TEMPLATE.format(resolution=res) for res in cfg.resolutions},
+        "exports_dir": str(cfg.exports_dir),
+        "scene_size": cfg.scene_size,
+        "resize_mode": cfg.resize_mode,
+        "git_commit": _git_commit(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    sidecar.write_text(json.dumps(meta, indent=2))
+    log.info("Metadata saved to %s", sidecar)
     return cfg.output
 
 
@@ -366,14 +390,19 @@ def run_canvit(cfg: CanViTConfig) -> Path:
             subprocess.run(cmd, check=True)
         # Write combined sidecar after all batches complete.
         existing = pd.read_parquet(cfg.output) if cfg.output.exists() else pd.DataFrame()
+        resolutions_in_parquet = sorted(int(c) for c in existing["canvas_resolution"].unique()) if not existing.empty else []
         sidecar = cfg.output.with_suffix(".json")
-        meta = {
+        meta: dict[str, Any] = {
             "model_repo": cfg.model_repo,
-            "canvas_resolutions_in_parquet": sorted(int(c) for c in existing["canvas_resolution"].unique()) if not existing.empty else [],
+            "canvas_resolutions_in_parquet": resolutions_in_parquet,
             "canvas_resolutions_this_run": sorted(CANVIT_PROBE_REPOS),
+            "probe_repos": {cr: CANVIT_PROBE_REPOS[cr] for cr in resolutions_in_parquet if cr in CANVIT_PROBE_REPOS},
+            "policies": {cr: _canvas_policy(cr) for cr in resolutions_in_parquet},
             "n_timesteps": cfg.n_timesteps,
             "scene_size": cfg.scene_size,
+            "resize_mode": cfg.resize_mode,
             "glimpse_resolution": cfg.glimpse_resolution,
+            "git_commit": _git_commit(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         sidecar.write_text(json.dumps(meta, indent=2))
@@ -408,13 +437,17 @@ def run_canvit(cfg: CanViTConfig) -> Path:
         log.info("  c%d saved — parquet now %d rows  (%.1f MB)", cr, len(combined), cfg.output.stat().st_size / 1e6)
 
     sidecar = cfg.output.with_suffix(".json")
-    meta = {
+    meta: dict[str, Any] = {
         "model_repo": cfg.model_repo,
         "canvas_resolutions_in_parquet": sorted(int(c) for c in combined["canvas_resolution"].unique()) if not combined.empty else [],
         "canvas_resolutions_this_run": resolutions,
+        "probe_repos": {cr: CANVIT_PROBE_REPOS[cr] for cr in resolutions if cr in CANVIT_PROBE_REPOS},
+        "policies": {cr: _canvas_policy(cr) for cr in resolutions},
         "n_timesteps": cfg.n_timesteps,
         "scene_size": cfg.scene_size,
+        "resize_mode": cfg.resize_mode,
         "glimpse_resolution": cfg.glimpse_resolution,
+        "git_commit": _git_commit(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     sidecar.write_text(json.dumps(meta, indent=2))
