@@ -16,7 +16,6 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Union
 
@@ -33,6 +32,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from canvit_eval.config import EpisodeConfig, ade20k_root
+from canvit_eval.provenance import device_info, provenance
 from canvit_eval.runner import eval_batches
 from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
 from canvit_eval.tasks.ade20k_obj.paths import (
@@ -47,15 +47,12 @@ from canvit_eval.tasks.base import TaskConfig
 log = logging.getLogger(__name__)
 
 
-def _git_commit() -> str:
-    try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    except Exception:
-        return "unknown"
-
-
 def _canvas_policy(canvas_grid: int) -> str:
     return "entropy_coarse_to_fine" if (canvas_grid & (canvas_grid - 1)) == 0 else "coarse_to_fine"
+
+# Upsample-chunk size: bound peak memory at ~1.25 GB regardless of canvas_grid
+# (8 × 150 classes × 512² × 4 B). Larger batches get chunked; smaller stay whole.
+_UPSAMPLE_CHUNK = 8
 
 DV3_PROBE_REPO_TEMPLATE = "canvit/probe-ade20k-40k-dv3b-{resolution}px"
 CANVIT_PROBE_REPOS: dict[int, str] = {
@@ -114,25 +111,61 @@ class CanViTConfig(BaseConfig):
 # ── Shared utilities ─────────────────────────────────────────────────────────
 
 
-def _per_image_iou(
-    pred: torch.Tensor,
-    mask: torch.Tensor,
+def _batch_confusion(
+    preds: torch.Tensor,
+    masks: torch.Tensor,
     n_classes: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Histc confusion matrix → (inter, union, gt_area), each [n_classes].
+    """Per-image (inter, union, gt_area) for a whole batch in a single kernel.
 
-    pred: [H, W] int64, 0-indexed class predictions.
-    mask: [H, W] int64, 1-indexed GT; IGNORE_LABEL excluded from the confusion.
+    preds: [B, H, W] int64, class prediction ∈ [0, n_classes − 1].
+    masks: [B, H, W] int64, 0-indexed GT ∈ [0, n_classes − 1] ∪ {IGNORE_LABEL}.
+      (`canvit_specialize.datasets.ade20k.ADE20kDataset.__getitem__` emits this
+       convention via `.long() - 1` + remap `<0` to IGNORE_LABEL.)
+
+    Returns three [B, n_classes] float32 tensors. float32 is chosen for
+    compatibility with `_per_image_iou`'s historical dtype AND because
+    per-cell counts max out at H·W = 262144 for 512² masks — well below
+    float32's exact-integer limit (2²³ = 8.4M). If you ever call with
+    H·W > 2²³, promote the accumulator.
+
+    Correctness invariants (all covered by `tests/test_iou_equivalence.py`):
+      • Integer-exact match with numpy.bincount reference — the scatter_add
+        on a per-image offset reproduces a per-image np.bincount exactly.
+      • `(pair >= 0) & (pair < n_classes²)` is defense-in-depth against out
+        -of-bounds predictions / masks; argmax on n_classes-wide logits and
+        the canvit_specialize loader both guarantee in-range inputs. The
+        filter is cheap and catches bugs that would otherwise silently
+        corrupt unrelated bins via scatter_add address wrap-around.
+      • scatter_add is deterministic on integer-valued accumulators (the
+        sum is associative when all summands are exact integers), even
+        though GPU scatter_add is non-deterministic in general.
     """
-    valid = mask != IGNORE_LABEL
-    p, t_gt = pred[valid], mask[valid]
-    cm = torch.histc(
-        (p * n_classes + t_gt).float(),
-        bins=n_classes * n_classes, min=0, max=n_classes * n_classes - 1,
-    ).reshape(n_classes, n_classes)
-    inter = cm.diag()
-    union = cm.sum(1) + cm.sum(0) - inter
-    return inter, union, cm.sum(0)  # gt_area = col sums
+    B, H, W = preds.shape
+    assert masks.shape == preds.shape, (preds.shape, masks.shape)
+    # int64 is what argmax returns + what the dataloader emits; documenting the
+    # contract via assertion (rather than casting) surfaces accidental misuse.
+    assert preds.dtype == torch.int64 and masks.dtype == torch.int64, (preds.dtype, masks.dtype)
+    device = preds.device
+    C2 = n_classes * n_classes
+
+    pair = preds * n_classes + masks                                     # [B, H, W]
+    keep = (masks != IGNORE_LABEL) & (pair >= 0) & (pair < C2)
+    img_idx = torch.arange(B, device=device).view(B, 1, 1).expand_as(preds)
+    flat = (img_idx * C2 + pair)[keep]                                    # [K], int64
+
+    # Materialise the confusion matrix as a flat B·C² buffer (per-image
+    # offset = b·C²), then view as [B, C, C]. scatter_add_ handles duplicate
+    # indices by summing — the natural semantics for confusion accumulation.
+    cm = torch.zeros(B * C2, dtype=torch.float32, device=device)
+    cm.scatter_add_(0, flat, torch.ones_like(flat, dtype=torch.float32))
+    cm = cm.view(B, n_classes, n_classes)
+
+    inter = cm.diagonal(dim1=1, dim2=2)             # [B, C]
+    row_sum = cm.sum(dim=2)                         # [B, C]   (pred rows)
+    col_sum = cm.sum(dim=1)                         # [B, C]   (gt cols)
+    union = row_sum + col_sum - inter
+    return inter, union, col_sum                    # gt_area = col sums
 
 
 def _load_area_df(path: Path) -> pd.DataFrame:
@@ -156,16 +189,20 @@ def _to_long_df(
     mask_resolution_px: int,
     resize_mode: str,
 ) -> pd.DataFrame:
-    """Vectorised: one row per (image, class) where union > 0.
+    """Vectorised: one row per (image, class) where the class is in the GT.
 
-    inter / union / gt_area are all [N, n_classes]. Stores raw int64 pixel
-    counts (inter_px, union_px, gt_area_px) so rows from different runs remain
-    interpretable after concatenation; the downstream consumer derives iou as
-    `inter_px / union_px` on read. `mask_resolution_px` + `resize_mode` travel
-    with each row as provenance for how the prediction / GT mask were sized.
+    inter / union / gt_area are all [N, n_classes]. Filter: `gt_area > 0`.
+    That keeps TP-bearing rows and FN-only rows (class in GT, iou = 0 at
+    known area); drops FP-only rows (class NOT in GT, no area coordinate).
+    FP counts still live in the in-memory [B, C, C] tensor — only the
+    long-form emission is scoped to "iou vs GT mask area".
+
+    Stores raw int64 pixel counts (inter_px, union_px, gt_area_px). The
+    downstream consumer derives iou as inter_px / union_px on read.
+    `mask_resolution_px` + `resize_mode` travel with each row as provenance.
     """
     assert inter.shape == union.shape == gt_area.shape, (inter.shape, union.shape, gt_area.shape)
-    img_idx, c0 = (union > 0).nonzero(as_tuple=True)
+    img_idx, c0 = (gt_area > 0).nonzero(as_tuple=True)
     return pd.DataFrame({
         "image_idx": img_idx.numpy(),
         "class_idx": (c0 + 1).numpy(),  # 0→1-indexed to match area parquet
@@ -247,11 +284,10 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
             if logits.shape[-1] != mask_res_px:
                 logits = F.interpolate(logits, size=(mask_res_px, mask_res_px), mode="bilinear", align_corners=False)
             preds = logits.argmax(dim=1)
-            for i in range(B):
-                inter, union, gt_area = _per_image_iou(preds[i], masks[i], n_classes)
-                inter_all[start + i] = inter.cpu()
-                union_all[start + i] = union.cpu()
-                gt_area_all[start + i] = gt_area.cpu()
+            inter, union, gt_area = _batch_confusion(preds, masks, n_classes)
+            inter_all[start:end] = inter.cpu()
+            union_all[start:end] = union.cpu()
+            gt_area_all[start:end] = gt_area.cpu()
 
         _miou_sanity(inter_all, union_all, f"{res_px}px")
         df = _to_long_df(
@@ -266,7 +302,9 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     combined = pd.concat(frames, ignore_index=True)
     merged = combined.merge(area_df, on=["image_idx", "class_idx"], how="left")
     assert len(merged) == len(combined), (len(merged), len(combined))
-    assert not merged["area"].isna().any(), "merge lost area for some rows — area parquet incomplete?"
+    # gt_area > 0 filter in _to_long_df guarantees every emitted row has a
+    # matching entry in area_df (same (image_idx, class_idx) condition).
+    assert not merged["area"].isna().any(), "area merge left NaN rows — area parquet incomplete or out of sync?"
     assert set(merged.columns) >= {"image_idx", "class_idx", "resolution", "inter_px", "union_px", "gt_area_px", "area", "class_name"}, merged.columns
 
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
@@ -275,16 +313,20 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
 
     sidecar = cfg.output.with_suffix(".json")
     meta: dict[str, Any] = {
+        "stage": "dinov3_iou",
         "resolutions_px": cfg.resolutions_px,
         "teacher_repos": sorted(teacher_repos_seen),
         "probe_repos": {r: DV3_PROBE_REPO_TEMPLATE.format(resolution=r) for r in cfg.resolutions_px},
         "exports_dir": str(cfg.exports_dir),
         "scene_size_px": cfg.scene_size_px,
         "resize_mode": cfg.resize_mode,
+        "batch_size": cfg.batch_size,
+        "amp": cfg.amp,
+        "n_images": int(merged["image_idx"].nunique()),
         "n_rows": len(merged),
         "n_classes_with_data": int(merged["class_idx"].nunique()),
-        "git_commit": _git_commit(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **device_info(device),
+        **provenance(),
     }
     sidecar.write_text(json.dumps(meta, indent=2))
     log.info("sidecar → %s", sidecar)
@@ -359,20 +401,30 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
             spatial = seg.canvit.get_spatial(step.state.canvas).view(B, canvas_grid, canvas_grid, -1)
             logits = probe(spatial.float())
             assert logits.ndim == 4 and logits.shape[0] == B, logits.shape
-            needs_upsample = logits.shape[-1] != masks_dev.shape[-1]
 
-            for i in range(B):
-                # Interpolate one image at a time — full-batch upsample to 512² OOMs at large canvas_grid.
-                logit_i = logits[i : i + 1]
-                if needs_upsample:
-                    logit_i = F.interpolate(logit_i, size=(cfg.scene_size_px, cfg.scene_size_px), mode="bilinear", align_corners=False)
-                pred_i = logit_i.argmax(dim=1)[0]
-                inter, union, gt_area = _per_image_iou(pred_i, masks_dev[i], n_classes)
-                inter_all[step.t, img_start + i] = inter.cpu()
-                union_all[step.t, img_start + i] = union.cpu()
-                if step.t == 0:
-                    gt_area_all[img_start + i] = gt_area.cpu()
-            del logits
+            # Chunked upsample keeps peak memory bounded. Upsampling the full
+            # batch to 512² at canvas_grid=64 × B=32 is ~5 GB; 8-at-a-time is
+            # ~1.25 GB peak regardless of canvas_grid.
+            if logits.shape[-1] != masks_dev.shape[-1]:
+                preds = torch.empty((B, cfg.scene_size_px, cfg.scene_size_px),
+                                     dtype=torch.int64, device=device)
+                for c0 in range(0, B, _UPSAMPLE_CHUNK):
+                    c1 = min(c0 + _UPSAMPLE_CHUNK, B)
+                    up = F.interpolate(
+                        logits[c0:c1], size=(cfg.scene_size_px, cfg.scene_size_px),
+                        mode="bilinear", align_corners=False,
+                    )
+                    preds[c0:c1] = up.argmax(dim=1)
+            else:
+                preds = logits.argmax(dim=1)
+
+            # One scatter_add for the whole batch (replaces B per-image histc calls).
+            inter, union, gt_area = _batch_confusion(preds, masks_dev, n_classes)
+            inter_all[step.t, img_start:img_start + B] = inter.cpu()
+            union_all[step.t, img_start:img_start + B] = union.cpu()
+            if step.t == 0:
+                gt_area_all[img_start:img_start + B] = gt_area.cpu()
+            del logits, preds
 
         img_start += B
 
@@ -423,10 +475,16 @@ def _build_subprocess_cmd(cfg: CanViTConfig, canvas_resolution: int) -> list[str
     return cmd
 
 
-def _write_canvit_sidecar(cfg: CanViTConfig, resolutions_in_parquet: list[int]) -> None:
+def _write_canvit_sidecar(
+    cfg: CanViTConfig,
+    *,
+    resolutions_in_parquet: list[int],
+    device: torch.device | None,
+) -> None:
     sidecar = cfg.output.with_suffix(".json")
     existing = pd.read_parquet(cfg.output) if cfg.output.exists() else pd.DataFrame()
     meta: dict[str, Any] = {
+        "stage": "canvit_iou",
         "model_repo": cfg.model_repo,
         "canvas_resolutions_in_parquet": resolutions_in_parquet,
         "probe_repos": {cr: CANVIT_PROBE_REPOS[cr] for cr in resolutions_in_parquet if cr in CANVIT_PROBE_REPOS},
@@ -435,11 +493,15 @@ def _write_canvit_sidecar(cfg: CanViTConfig, resolutions_in_parquet: list[int]) 
         "scene_size_px": cfg.scene_size_px,
         "resize_mode": cfg.resize_mode,
         "glimpse_resolution_px": cfg.glimpse_resolution_px,
+        "batch_size": cfg.batch_size,
+        "amp": cfg.amp,
+        "ade20k_root": str(cfg.ade20k_root_path),
+        **device_info(device),
+        "n_images": int(existing["image_idx"].nunique()) if not existing.empty else 0,
         "n_rows": int(len(existing)),
         "n_classes_with_data": int(existing["class_idx"].nunique()) if not existing.empty else 0,
         "timesteps_in_parquet": sorted(int(t) for t in existing["timestep"].unique()) if not existing.empty else [],
-        "git_commit": _git_commit(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **provenance(),
     }
     sidecar.write_text(json.dumps(meta, indent=2))
     log.info("sidecar → %s", sidecar)
@@ -482,7 +544,7 @@ def run_canvit(cfg: CanViTConfig) -> Path:
         log.info("all %d subprocesses done in %.1fs  (parquet: %d rows, %d canvases)",
                  len(cfg.canvas_resolutions), time.monotonic() - t0,
                  len(existing), len(resolutions_in_parquet))
-        _write_canvit_sidecar(cfg, resolutions_in_parquet)
+        _write_canvit_sidecar(cfg, resolutions_in_parquet=resolutions_in_parquet, device=None)
         return cfg.output
 
     # Single canvas: run in-process.
@@ -517,7 +579,11 @@ def run_canvit(cfg: CanViTConfig) -> Path:
              combined["canvas_resolution"].nunique(),
              cfg.output.stat().st_size / 1e6)
 
-    _write_canvit_sidecar(cfg, sorted(int(c) for c in combined["canvas_resolution"].unique()))
+    _write_canvit_sidecar(
+        cfg,
+        resolutions_in_parquet=sorted(int(c) for c in combined["canvas_resolution"].unique()),
+        device=device,
+    )
     return cfg.output
 
 
