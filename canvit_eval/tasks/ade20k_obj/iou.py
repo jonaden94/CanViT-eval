@@ -196,16 +196,29 @@ def _to_long_df(
     mask_resolution_px: int,
     resize_mode: str,
 ) -> pd.DataFrame:
-    """Vectorised: one row per (image, class) where union > 0.
+    """Vectorised: one row per (image, class) where the class is in the GT.
 
-    inter / union / gt_area are all [N, n_classes]. Stores raw int64 pixel
-    counts (inter_px, union_px, gt_area_px) so rows from different runs remain
-    interpretable after concatenation; the downstream consumer derives iou as
-    `inter_px / union_px` on read. `mask_resolution_px` + `resize_mode` travel
-    with each row as provenance for how the prediction / GT mask were sized.
+    inter / union / gt_area are all [N, n_classes]. Filter: `gt_area > 0`
+    (class actually present in this image's ground truth). This includes:
+      • TP-bearing rows: class is in GT and has nonzero prediction overlap —
+        iou = inter/union ∈ (0, 1].
+      • FN-only rows: class is in GT but the model missed it entirely —
+        iou = 0, area = known.
+    And excludes:
+      • FP-only rows (class NOT in GT, model predicted it anyway): iou would
+        be 0 and area undefined (no GT pixels → no entry in area_df). These
+        rows are pure noise for the downstream LOWESS(area, iou) fit and
+        would contaminate the smooth via statsmodels' default `missing='none'`
+        handling. The confusion counts for FP classes still live in the
+        full confusion tensor; they're just not emitted to this long-form.
+
+    Stores raw int64 pixel counts (inter_px, union_px, gt_area_px) so rows
+    from different runs remain interpretable after concatenation; the
+    downstream consumer derives iou as `inter_px / union_px` on read.
+    `mask_resolution_px` + `resize_mode` travel with each row as provenance.
     """
     assert inter.shape == union.shape == gt_area.shape, (inter.shape, union.shape, gt_area.shape)
-    img_idx, c0 = (union > 0).nonzero(as_tuple=True)
+    img_idx, c0 = (gt_area > 0).nonzero(as_tuple=True)
     return pd.DataFrame({
         "image_idx": img_idx.numpy(),
         "class_idx": (c0 + 1).numpy(),  # 0→1-indexed to match area parquet
@@ -305,7 +318,9 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     combined = pd.concat(frames, ignore_index=True)
     merged = combined.merge(area_df, on=["image_idx", "class_idx"], how="left")
     assert len(merged) == len(combined), (len(merged), len(combined))
-    assert not merged["area"].isna().any(), "merge lost area for some rows — area parquet incomplete?"
+    # gt_area > 0 filter in _to_long_df guarantees every emitted row has a
+    # matching entry in area_df (same (image_idx, class_idx) condition).
+    assert not merged["area"].isna().any(), "area merge left NaN rows — area parquet incomplete or out of sync?"
     assert set(merged.columns) >= {"image_idx", "class_idx", "resolution", "inter_px", "union_px", "gt_area_px", "area", "class_name"}, merged.columns
 
     cfg.output.parent.mkdir(parents=True, exist_ok=True)

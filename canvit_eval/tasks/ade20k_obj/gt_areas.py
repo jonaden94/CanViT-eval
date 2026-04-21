@@ -92,7 +92,7 @@ def build_image_class_dataframe(ade20k_root: Path) -> pd.DataFrame:
     for image_idx, ann_path in enumerate(ann_paths):
         arr = np.array(Image.open(ann_path))
         counts = np.bincount(arr.ravel(), minlength=_BINCOUNT_BINS)
-        inv_size = 1.0 / arr.size
+        size = arr.size
         skipped_bg_pixels += int(counts[0])
         # Anything outside [MIN_CLASS_IDX, MAX_CLASS_IDX] beyond background.
         if counts.size > MAX_CLASS_IDX + 1:
@@ -105,7 +105,11 @@ def build_image_class_dataframe(ade20k_root: Path) -> pd.DataFrame:
                 "image_idx": image_idx,
                 "class_idx": cls,
                 "class_name": class_names[cls].split(",")[0],
-                "area": n * inv_size,
+                # Direct divide (not `n * (1/size)`): arr.size is not generally
+                # a power of 2 on raw ADE20K PNGs, and reciprocal-multiply
+                # diverges from divide in the last ULP. Match the per-class
+                # reference exactly.
+                "area": n / size,
             })
     df = pd.DataFrame(rows)
     assert len(df) > 0, "no (image, class) rows — ADE20K val set empty or unreadable?"
