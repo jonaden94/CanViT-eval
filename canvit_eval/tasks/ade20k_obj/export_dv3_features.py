@@ -1,7 +1,7 @@
 """Export DINOv3 patch features for ADE20K validation images.
 
 Loads every image in the ADE20K validation split, runs a DINOv3 teacher, and
-writes a single .pt file to output/dv3_features/{eval_resolution}px_features.pt.
+writes a single .pt file to results/dv3_features/{eval_resolution}px_features.pt.
 
 Saved dict:
     feats        – float32 [N, grid*grid, D]  (pinned, then saved)
@@ -50,7 +50,7 @@ class Config:
     num_workers: int = 8
     device: str = "auto"
     amp: bool = True
-    out_dir: Path = Path("output/dv3_features/")
+    out_dir: Path = Path("results/dv3_features/")
 
 
 def _get_device(device: str) -> torch.device:
