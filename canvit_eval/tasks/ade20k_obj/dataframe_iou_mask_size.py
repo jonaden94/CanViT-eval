@@ -14,6 +14,7 @@ import json
 import logging
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +34,7 @@ from tqdm import tqdm
 
 from canvit_eval.config import EpisodeConfig, ade20k_root
 from canvit_eval.runner import eval_batches
+from canvit_eval.tasks.ade20k_obj.dataframe_dataset import EXPECTED_N_VAL_IMAGES
 from canvit_eval.tasks.ade20k_obj.paths import (
     AREA_PARQUET,
     CANVIT_PARQUET,
@@ -185,36 +187,54 @@ def _to_long_df(
 @torch.inference_mode()
 def run_dinov3(cfg: DINOv3Config) -> Path:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s", datefmt="%H:%M:%S")
-    device = torch.device(cfg.device)
+
     if not cfg.resolutions_px:
         raise ValueError(
             f"No DINOv3 features found under {cfg.exports_dir}. "
-            f"Run export_dv3_features.py first (for each resolution you need)."
+            f"Run `python -m canvit_eval.tasks.ade20k_obj.export_dv3_features` first."
         )
-    log.info("DINOv3  device=%s  resolutions_px=%s", device, cfg.resolutions_px)
-    log.info("area_parquet=%s  output=%s", cfg.area_parquet, cfg.output)
+    for r in cfg.resolutions_px:
+        assert r > 0 and isinstance(r, int), r
+
+    device = torch.device(cfg.device)
+    log.info("=== DINOv3 per-(image, class) IoU ===")
+    log.info("device=%s  resolutions_px=%s  batch_size=%d", device, cfg.resolutions_px, cfg.batch_size)
+    log.info("area_parquet=%s", cfg.area_parquet)
+    log.info("output=%s", cfg.output)
 
     area_df = _load_area_df(cfg.area_parquet)
-    frames = []
+    assert len(area_df) > 0, f"area parquet is empty: {cfg.area_parquet}"
+
+    frames: list[pd.DataFrame] = []
     n_classes = NUM_CLASSES
+    teacher_repos_seen: set[str] = set()
 
     for res_px in cfg.resolutions_px:
         path = features_path(res_px)
         if not path.exists():
             raise FileNotFoundError(path)
 
+        t0 = time.monotonic()
         data = torch.load(path, map_location="cpu", weights_only=False)
         feats_all: torch.Tensor = data["feats"]
         masks_all: torch.Tensor = data["masks"]
         grid: int = data["grid"]
         mask_res_px: int = data.get("scene_size_px", data.get("scene_size"))
         n_images = feats_all.shape[0]
-        assert feats_all.ndim == 3 and feats_all.shape[1] == grid * grid, feats_all.shape
+        teacher_repo = data.get("teacher_repo", "unknown")
+        teacher_repos_seen.add(teacher_repo)
 
-        probe = SegmentationProbe.from_pretrained(
-            DV3_PROBE_REPO_TEMPLATE.format(resolution=res_px)
-        ).to(device).eval()
-        log.info("  %dpx  n_images=%d  grid=%d", res_px, n_images, grid)
+        assert feats_all.ndim == 3 and feats_all.shape[1] == grid * grid, feats_all.shape
+        assert masks_all.shape[0] == n_images and masks_all.shape[-1] == mask_res_px, masks_all.shape
+        assert n_images == EXPECTED_N_VAL_IMAGES, (
+            f"features.pt has {n_images} images, ADE20K val should have {EXPECTED_N_VAL_IMAGES}"
+        )
+        assert isinstance(mask_res_px, int) and mask_res_px > 0, mask_res_px
+
+        probe_repo = DV3_PROBE_REPO_TEMPLATE.format(resolution=res_px)
+        probe = SegmentationProbe.from_pretrained(probe_repo).to(device).eval()
+        log.info("  %dpx: features=%s grid=%d mask_res=%d teacher=%s probe=%s",
+                 res_px, path.name, grid, mask_res_px, teacher_repo, probe_repo)
 
         inter_all = torch.zeros(n_images, n_classes)
         union_all = torch.zeros(n_images, n_classes)
@@ -226,6 +246,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
             masks = masks_all[start:end].to(device).long()
             B = feats.shape[0]
             logits = probe(feats.view(B, grid, grid, -1).float())
+            assert logits.ndim == 4 and logits.shape[0] == B and logits.shape[1] == n_classes, logits.shape
             if logits.shape[-1] != mask_res_px:
                 logits = F.interpolate(logits, size=(mask_res_px, mask_res_px), mode="bilinear", align_corners=False)
             preds = logits.argmax(dim=1)
@@ -241,27 +262,35 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
             mask_resolution_px=mask_res_px,
             resize_mode=data.get("resize_mode", cfg.resize_mode),
         )
+        assert len(df) > 0, f"empty dataframe at {res_px}px"
         frames.append(df)
-        log.info("  %dpx: %d (image, class) pairs", res_px, len(df))
+        log.info("  %dpx: %d (image, class) pairs in %.1fs", res_px, len(df), time.monotonic() - t0)
 
     combined = pd.concat(frames, ignore_index=True)
     merged = combined.merge(area_df, on=["image_idx", "class_idx"], how="left")
+    assert len(merged) == len(combined), (len(merged), len(combined))
+    assert not merged["area"].isna().any(), "merge lost area for some rows — area parquet incomplete?"
+    assert set(merged.columns) >= {"image_idx", "class_idx", "resolution", "inter_px", "union_px", "gt_area_px", "area", "class_name"}, merged.columns
+
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
     merged.to_parquet(cfg.output, index=False)
-    log.info("Saved %s  (%d rows, %.1f MB)", cfg.output, len(merged), cfg.output.stat().st_size / 1e6)
+    log.info("saved %s  (%d rows, %.1f MB)", cfg.output, len(merged), cfg.output.stat().st_size / 1e6)
 
     sidecar = cfg.output.with_suffix(".json")
     meta: dict[str, Any] = {
         "resolutions_px": cfg.resolutions_px,
+        "teacher_repos": sorted(teacher_repos_seen),
         "probe_repos": {r: DV3_PROBE_REPO_TEMPLATE.format(resolution=r) for r in cfg.resolutions_px},
         "exports_dir": str(cfg.exports_dir),
         "scene_size_px": cfg.scene_size_px,
         "resize_mode": cfg.resize_mode,
+        "n_rows": len(merged),
+        "n_classes_with_data": int(merged["class_idx"].nunique()),
         "git_commit": _git_commit(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     sidecar.write_text(json.dumps(meta, indent=2))
-    log.info("Metadata saved to %s", sidecar)
+    log.info("sidecar → %s", sidecar)
     return cfg.output
 
 
@@ -271,36 +300,34 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
 @torch.inference_mode()
 def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -> pd.DataFrame:
     """Run CanViT episode for one canvas_resolution; return long-form DataFrame."""
+    assert canvas_grid in CANVIT_PROBE_REPOS, (canvas_grid, sorted(CANVIT_PROBE_REPOS))
+    t0 = time.monotonic()
+
     probe_repo = CANVIT_PROBE_REPOS[canvas_grid]
     seg = CanViTForSemanticSegmentation.from_pretrained_with_probe(
         pretrained_repo=cfg.model_repo,
         probe_repo=probe_repo,
     ).to(device).eval()
     probe = seg.head
-    log.info("  canvas_grid=%d  probe=%s", canvas_grid, probe_repo)
 
     img_tf, mask_tf = make_val_transforms(cfg.scene_size_px, cfg.resize_mode)
     dataset = ADE20kDataset(
         root=cfg.ade20k_root_path, split="validation",
         img_transform=img_tf, mask_transform=mask_tf,
     )
+    T, n_images, n_classes = cfg.n_timesteps, len(dataset), NUM_CLASSES
+    assert T > 0, T
+    assert n_images == EXPECTED_N_VAL_IMAGES, (n_images, EXPECTED_N_VAL_IMAGES)
+
     # Larger canvas grids would OOM at the default batch size.
     effective_bs = min(cfg.batch_size, 8) if canvas_grid >= 24 else cfg.batch_size
-    if effective_bs != cfg.batch_size:
-        log.info("  canvas_grid=%d: batch_size %d→%d", canvas_grid, cfg.batch_size, effective_bs)
     loader = DataLoader(
         dataset, batch_size=effective_bs, shuffle=False,
         num_workers=cfg.num_workers, pin_memory=True,
     )
-    T, n_images, n_classes = cfg.n_timesteps, len(dataset), NUM_CLASSES
-
-    inter_all   = torch.zeros(T, n_images, n_classes)
-    union_all   = torch.zeros(T, n_images, n_classes)
-    gt_area_all = torch.zeros(n_images, n_classes)  # GT area is timestep-invariant
 
     # EntropyGuidedC2F requires power-of-2 canvas grid; fall back to coarse_to_fine.
     policy = _canvas_policy(canvas_grid)
-    log.info("  policy=%s", policy)
     episode_cfg = EpisodeConfig(
         model_repo=cfg.model_repo,
         policy=policy,
@@ -309,6 +336,14 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
         glimpse_px=cfg.glimpse_resolution_px,
     )
     policy_kwargs = {"probe": probe, "get_spatial_fn": seg.canvit.get_spatial} if policy == "entropy_coarse_to_fine" else {}
+
+    log.info("  canvas_grid=%d  probe=%s  policy=%s  T=%d  glimpse_px=%d  batch=%d%s",
+             canvas_grid, probe_repo, policy, T, cfg.glimpse_resolution_px, effective_bs,
+             f" (was {cfg.batch_size})" if effective_bs != cfg.batch_size else "")
+
+    inter_all   = torch.zeros(T, n_images, n_classes)
+    union_all   = torch.zeros(T, n_images, n_classes)
+    gt_area_all = torch.zeros(n_images, n_classes)  # GT area is timestep-invariant
 
     img_start = 0
     for br in tqdm(
@@ -344,6 +379,8 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
 
         img_start += B
 
+    assert img_start == n_images, (img_start, n_images)
+    _miou_sanity(inter_all[0], union_all[0], f"c{canvas_grid} t=0")
     _miou_sanity(inter_all[T - 1], union_all[T - 1], f"c{canvas_grid} t={T-1}")
 
     frames = []
@@ -355,6 +392,10 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
         frames.append(df)
 
     result = pd.concat(frames, ignore_index=True)
+    assert len(result) > 0, f"empty result for canvas_grid={canvas_grid}"
+    assert result["timestep"].nunique() == T, (result["timestep"].nunique(), T)
+    log.info("  canvas_grid=%d done in %.1fs  (%d rows across %d timesteps)",
+             canvas_grid, time.monotonic() - t0, len(result), T)
 
     # policy_kwargs holds a bound method (seg.canvit.get_spatial) which keeps the entire
     # model graph alive; must be deleted explicitly before gc.collect() can free it.
@@ -387,6 +428,7 @@ def _build_subprocess_cmd(cfg: CanViTConfig, canvas_resolution: int) -> list[str
 
 def _write_canvit_sidecar(cfg: CanViTConfig, resolutions_in_parquet: list[int]) -> None:
     sidecar = cfg.output.with_suffix(".json")
+    existing = pd.read_parquet(cfg.output) if cfg.output.exists() else pd.DataFrame()
     meta: dict[str, Any] = {
         "model_repo": cfg.model_repo,
         "canvas_resolutions_in_parquet": resolutions_in_parquet,
@@ -396,11 +438,14 @@ def _write_canvit_sidecar(cfg: CanViTConfig, resolutions_in_parquet: list[int]) 
         "scene_size_px": cfg.scene_size_px,
         "resize_mode": cfg.resize_mode,
         "glimpse_resolution_px": cfg.glimpse_resolution_px,
+        "n_rows": int(len(existing)),
+        "n_classes_with_data": int(existing["class_idx"].nunique()) if not existing.empty else 0,
+        "timesteps_in_parquet": sorted(int(t) for t in existing["timestep"].unique()) if not existing.empty else [],
         "git_commit": _git_commit(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     sidecar.write_text(json.dumps(meta, indent=2))
-    log.info("Metadata saved to %s", sidecar)
+    log.info("sidecar → %s", sidecar)
 
 
 def run_canvit(cfg: CanViTConfig) -> Path:
@@ -413,39 +458,67 @@ def run_canvit(cfg: CanViTConfig) -> Path:
     unknown = [c for c in cfg.canvas_resolutions if c not in CANVIT_PROBE_REPOS]
     if unknown:
         raise ValueError(f"No probe repo for canvas_resolution={unknown}. Available: {sorted(CANVIT_PROBE_REPOS)}")
+    assert cfg.n_timesteps > 0, cfg.n_timesteps
 
     # Multi-canvas: one subprocess per resolution so CUDA memory is fully released
     # between runs (in-process cleanup is best-effort; subprocess is bulletproof).
     if len(cfg.canvas_resolutions) > 1:
+        log.info("=== CanViT per-(image, class, timestep) IoU ===")
+        log.info("model_repo=%s", cfg.model_repo)
+        log.info("canvas_resolutions=%s  n_timesteps=%d  glimpse_px=%d",
+                 cfg.canvas_resolutions, cfg.n_timesteps, cfg.glimpse_resolution_px)
+        log.info("ade20k_root=%s  scene_size_px=%d  resize_mode=%s",
+                 cfg.ade20k_root_path, cfg.scene_size_px, cfg.resize_mode)
+        log.info("output=%s", cfg.output)
+
         cfg.output.parent.mkdir(parents=True, exist_ok=True)
+        t0 = time.monotonic()
         for i, cr in enumerate(cfg.canvas_resolutions):
-            log.info("Subprocess %d/%d: canvas_resolution=%d", i + 1, len(cfg.canvas_resolutions), cr)
+            log.info("── subprocess %d/%d: canvas_resolution=%d ──",
+                     i + 1, len(cfg.canvas_resolutions), cr)
             subprocess.run(_build_subprocess_cmd(cfg, cr), check=True)
-        existing = pd.read_parquet(cfg.output) if cfg.output.exists() else pd.DataFrame()
-        resolutions_in_parquet = sorted(int(c) for c in existing["canvas_resolution"].unique()) if not existing.empty else []
+        assert cfg.output.exists(), f"no output parquet produced: {cfg.output}"
+        existing = pd.read_parquet(cfg.output)
+        resolutions_in_parquet = sorted(int(c) for c in existing["canvas_resolution"].unique())
+        missing = set(cfg.canvas_resolutions) - set(resolutions_in_parquet)
+        assert not missing, f"after subprocesses, these canvas resolutions are missing from parquet: {sorted(missing)}"
+        log.info("all %d subprocesses done in %.1fs  (parquet: %d rows, %d canvases)",
+                 len(cfg.canvas_resolutions), time.monotonic() - t0,
+                 len(existing), len(resolutions_in_parquet))
         _write_canvit_sidecar(cfg, resolutions_in_parquet)
         return cfg.output
 
     # Single canvas: run in-process.
     device = torch.device(cfg.device)
     (cr,) = cfg.canvas_resolutions
-    log.info("CanViT  device=%s  canvas_resolution=%d", device, cr)
-    log.info("area_parquet=%s  output=%s", cfg.area_parquet, cfg.output)
+    log.info("=== CanViT per-(image, class, timestep) IoU ===")
+    log.info("device=%s  canvas_resolution=%d  model_repo=%s", device, cr, cfg.model_repo)
+    log.info("n_timesteps=%d  glimpse_px=%d  scene_size_px=%d  resize_mode=%s",
+             cfg.n_timesteps, cfg.glimpse_resolution_px, cfg.scene_size_px, cfg.resize_mode)
+    log.info("area_parquet=%s", cfg.area_parquet)
+    log.info("output=%s", cfg.output)
 
     area_df = _load_area_df(cfg.area_parquet)
+    assert len(area_df) > 0, f"area parquet is empty: {cfg.area_parquet}"
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
 
     if cfg.output.exists():
         existing = pd.read_parquet(cfg.output)
         kept = existing[existing["canvas_resolution"] != cr]
+        log.info("existing parquet has %d rows across canvases %s; keeping %d rows (other canvases)",
+                 len(existing), sorted(existing["canvas_resolution"].unique()), len(kept))
     else:
         kept = pd.DataFrame()
 
     df = _run_one_canvas(cr, cfg, device)
     df = df.merge(area_df, on=["image_idx", "class_idx"], how="left")
+    assert not df["area"].isna().any(), "merge lost area for some rows"
     combined = pd.concat([kept, df], ignore_index=True) if not kept.empty else df
     combined.to_parquet(cfg.output, index=False)
-    log.info("  c%d saved — parquet now %d rows  (%.1f MB)", cr, len(combined), cfg.output.stat().st_size / 1e6)
+    log.info("saved %s — parquet now %d rows across %d canvases (%.1f MB)",
+             cfg.output, len(combined),
+             combined["canvas_resolution"].nunique(),
+             cfg.output.stat().st_size / 1e6)
 
     _write_canvit_sidecar(cfg, sorted(int(c) for c in combined["canvas_resolution"].unique()))
     return cfg.output

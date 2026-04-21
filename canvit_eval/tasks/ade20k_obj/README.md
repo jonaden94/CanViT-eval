@@ -1,6 +1,6 @@
 # ADE20K Mask Analysis
 
-Produces per-(image, class) and per-(image, class, timestep) intersection/union counts for the ADE20K val set, feeding the mask-size analysis figure: "when/why does CanViT beat DINOv3, by mask size?"
+Produces per-(image, class) and per-(image, class, timestep) intersection/union counts for the ADE20K val set, feeding the mask-size figure in CanViT-Toward-AVFMs: "when/why does CanViT beat DINOv3, by mask size?"
 
 Output paths are defined once in `paths.py` (SSOT). Append `--help` to any command below for the full flag set.
 
@@ -14,19 +14,25 @@ Output paths are defined once in `paths.py` (SSOT). Append `--help` to any comma
 
 **Sanity check.** After running, `mean over c of (Σ inter[:,c]) / (Σ union[:,c])` should match the headline mIoU from `ade20k_seg.py`. Divergence = bug.
 
-## Pipeline
+## Run the whole pipeline
 
-Three independent steps. Run them in order on a fresh tree; re-run only what changed.
+```bash
+uv run python -m canvit_eval.tasks.ade20k_obj
+```
 
-**1. DINOv3 features** — one `.pt` per input resolution, written under `FEATURES_DIR`.
+Runs all four stages in order. Each stage is skipped if its output already exists — the size + mtime of the skipped artifact are logged so you can sanity-check what's being reused. To force a stage to rerun, delete its output.
+
+The orchestrator defaults to the canvas resolutions the paper figure consumes (`{8, 16, 32, 64}`) and the single DINOv3 input resolution it uses (128 px). Adjust the lists at the top of `__main__.py` to expand the sweep.
+
+## Or run each stage standalone
+
+**1. DINOv3 features** — `FEATURES_DIR / "{eval_resolution_px}px_features.pt"`
 
 ```bash
 uv run python -m canvit_eval.tasks.ade20k_obj.export_dv3_features --eval-resolution-px 128
 ```
 
-The figure's IoU and Δ panels consume only the 128 px features. Other resolutions are optional (and would require additional DINOv3 probe weights on HF).
-
-**2. Area dataframe** — one row per (image, class) with GT pixel area, written to `AREA_PARQUET`.
+**2. Area dataframe** — `AREA_PARQUET`, `AREA_STATS_PARQUET`
 
 ```bash
 uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_dataset
@@ -35,11 +41,11 @@ uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_dataset
 **3. Per-image IoU** — DINOv3 and CanViT are independent subcommands.
 
 ```bash
-# DINOv3: consumes every features.pt present under FEATURES_DIR.
+# DINOv3 — consumes every features.pt present under FEATURES_DIR.
 uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_iou_mask_size dinov3
 
-# CanViT: pass the canvas resolutions you want. Each runs in its own subprocess
-# so CUDA memory is fully released between them.
+# CanViT — pass the canvas resolutions you want. Each runs in its own
+# subprocess so CUDA memory is fully released between them.
 uv run python -m canvit_eval.tasks.ade20k_obj.dataframe_iou_mask_size canvit \
     --canvas-resolutions 8 16 32 64
 ```
