@@ -28,7 +28,7 @@ uv run python -m canvit_eval ade20k-seg-dinov3 \
     --eval-resolution 256 \
     --output results/ade20k_seg/dv3b_256px.pt
 
-# ImageNet-1K classification:
+# ImageNet-1k classification:
 uv run python -m canvit_eval in1k-clf --mode finetuned
 
 # Reconstruction quality (ablation checkpoints):

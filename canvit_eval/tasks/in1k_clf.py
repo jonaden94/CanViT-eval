@@ -1,4 +1,4 @@
-"""ImageNet-1K classification via CanViTForImageClassification.
+"""ImageNet-1k classification via CanViTForImageClassification.
 
 Supports both pretrained (frozen probe, fused at construction) and finetuned models.
 """
@@ -79,7 +79,7 @@ def evaluate(cfg: Config) -> Path:
     device = torch.device(cfg.device)
 
     canvas_grid = cfg.episode.canvas_grid
-    assert canvas_grid is not None, "canvas_grid required for IN1K"
+    assert canvas_grid is not None, "canvas_grid required for IN1k"
 
     clf = _load_classifier(cfg, device)
 

@@ -333,7 +333,7 @@ def test_eval_job_structural_tuple_is_unique():
     assert len(keys) == len(set(keys)), "structural-identity tuple not unique across jobs"
 
 
-# ── IN1K canvas-resolution sweep tests ──────────────────────────────────
+# ── IN1k canvas-resolution sweep tests ──────────────────────────────────
 
 
 def test_in1k_resolutions_disjoint():
@@ -345,7 +345,7 @@ def test_in1k_resolutions_disjoint():
 
 
 def test_in1k_filename_encodes_scene_and_grid():
-    """IN1K outputs must carry s{scene}_c{grid} in the filename so the exporter
+    """IN1k outputs must carry s{scene}_c{grid} in the filename so the exporter
     can group runs by (policy, scene, grid)."""
     jobs = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["in1k-clf"])
     in1k = [j for j in jobs if j.task == "in1k-clf"]
@@ -367,7 +367,7 @@ def test_in1k_jobs_carry_structural_fields():
 
 
 def test_in1k_include_extras_sweeps_frozen_only():
-    """Extra IN1K resolutions should expand frozen-mode jobs but NOT finetuned —
+    """Extra IN1k resolutions should expand frozen-mode jobs but NOT finetuned —
     the finetuned weights were specialized at s=512/c=32 so off-grid inference is
     a different (non-paper-claim) question."""
     base = build_eval_matrix(Path("/tmp/test"), n_runs=1, n_timesteps=21, tasks=["in1k-clf"])

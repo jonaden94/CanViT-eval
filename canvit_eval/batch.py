@@ -122,9 +122,9 @@ EXTRA_ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 24, 32),
 ]
 
-# IN1K classification sweep — (scene_size, canvas_grid, batch_size).
+# IN1k classification sweep — (scene_size, canvas_grid, batch_size).
 #
-# IN1K probes are canvas-grid-agnostic: the classification head operates on recurrent_cls[:, 0]
+# IN1k probes are canvas-grid-agnostic: the classification head operates on recurrent_cls[:, 0]
 # (a single CLS token of dim D), not on spatial tiles. Same fused head weights work at any
 # grid. Fusion always uses the c=32 standardizer (see FUSION_CANVAS_GRID in tasks/in1k_clf.py);
 # only the runtime canvas_grid varies across this sweep.
@@ -360,7 +360,7 @@ def build_eval_matrix(
             ade20k_res=ade20k_res, canvas_grids=canvas_grids,
         ))
     if "in1k-clf" in tasks:
-        # Frozen mode sweeps extra resolutions for the "canvas size is irrelevant for IN1K"
+        # Frozen mode sweeps extra resolutions for the "canvas size is irrelevant for IN1k"
         # paper claim; finetuned mode is baseline-only (see EXTRA_IN1K_RESOLUTIONS comment).
         frozen_res = IN1K_RESOLUTIONS + (EXTRA_IN1K_RESOLUTIONS if include_extra_grids else [])
         jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts,
@@ -416,7 +416,7 @@ class Args:
     """Skip jobs whose structural output already exists (timestamp-agnostic glob match)."""
     include_extra_grids: bool = False
     """Include extra canvas grids beyond the paper-v1 set.
-       ADE20K: adds c8..c24 at s=512. IN1K frozen: adds c8/c16/c64 at matched scene sizes
+       ADE20K: adds c8..c24 at s=512. IN1k frozen: adds c8/c16/c64 at matched scene sizes
        (finetuned stays at c=32 — it was specialized there)."""
     policies: list[str] = field(default_factory=list)
     """Filter to these policies (empty = all). Applies to jobs that carry a policy field."""
