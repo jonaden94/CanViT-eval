@@ -47,22 +47,7 @@ def eval_batches(
     amp: bool = True,
     policy_kwargs: dict | None = None,
 ) -> Iterator[BatchResult]:
-    """Iterate over dataset, running episodes. Yields (steps, batch) per batch.
-
-    This is the ONE evaluation loop. All tasks consume this generator.
-
-    Args:
-        model: Loaded CanViT model.
-        loader: DataLoader yielding tuples (first element = images).
-        episode_cfg: Episode parameters (policy, n_timesteps, etc.).
-        canvas_grid: Resolved canvas grid size.
-        device: Compute device.
-        amp: Use automatic mixed precision.
-        policy_kwargs: Extra kwargs for make_policy (e.g. probe= for entropy C2F).
-
-    Yields:
-        BatchResult with episode steps and the raw batch data.
-    """
+    """Iterate dataset, yielding BatchResult per batch. `policy_kwargs` passes e.g. `probe=` for entropy-C2F."""
     T = episode_cfg.n_timesteps
     amp_dtype = torch.bfloat16 if amp else torch.float32
     kw = policy_kwargs or {}

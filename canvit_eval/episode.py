@@ -48,23 +48,7 @@ def run_episode(
     glimpse_px: int,
     state: RecurrentState | None = None,
 ) -> list[EpisodeStep]:
-    """Run a CanViT episode: T timesteps with one policy, returning all outputs.
-
-    This is the ONLY place where the recurrent model forward loop happens
-    during evaluation. All tasks call this, then process the returned steps.
-
-    Args:
-        model: CanViT model (CanViTForPretrainingHFHub or similar).
-        images: [B, C, H, W] scene images.
-        policy: Viewing policy (determines viewpoints at each timestep).
-        n_timesteps: Number of timesteps (glimpses) per episode.
-        canvas_grid: Canvas spatial resolution (e.g. 32 for 32×32).
-        glimpse_px: Glimpse pixel size (e.g. 128).
-        state: Optional initial state (default: model.init_state()).
-
-    Returns:
-        List of T EpisodeStep, one per timestep.
-    """
+    """Run a CanViT episode (T timesteps, one policy) on [B, C, H, W] images."""
     B = images.shape[0]
     if state is None:
         state = model.init_state(batch_size=B, canvas_grid_size=canvas_grid)
