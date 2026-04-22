@@ -122,25 +122,23 @@ EXTRA_ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 24, 32),
 ]
 
-# IN1K classification sweep — (scene_size, canvas_grid, batch_size). Natural coupling: scene = grid * 16.
-# batch_size scales with scene² (input tensor memory dominates at large scenes on a 24GB 4090).
+# IN1K classification sweep — (scene_size, canvas_grid, batch_size).
 #
 # IN1K probes are canvas-grid-agnostic: the classification head operates on recurrent_cls[:, 0]
 # (a single CLS token of dim D), not on spatial tiles. Same fused head weights work at any
 # grid. Fusion always uses the c=32 standardizer (see FUSION_CANVAS_GRID in tasks/in1k_clf.py);
 # only the runtime canvas_grid varies across this sweep.
 #
-# EXTRA_IN1K_RESOLUTIONS feeds the "canvas size is irrelevant for IN1K" paper claim
-# (contrast with ADE20K where canvas grid materially affects mIoU). Finetuned mode is baseline-
-# only — the model was finetuned at s=512/c=32; varying inference resolution for finetuned
-# weights is a separate (not-the-paper-claim) question.
+# EXTRA_IN1K_RESOLUTIONS: scene size FIXED at 512 (same as baseline), only canvas grid varies.
+# This isolates the canvas grid variable. Finetuned mode is baseline-only — the model was
+# finetuned at s=512/c=32; varying grid for finetuned weights is a separate question.
 IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 32, 64),
 ]
 EXTRA_IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
-    (128, 8, 128),     # 128² images — bigger batch fits easily
-    (256, 16, 64),
-    (1024, 64, 8),     # 1024² × B=64 → ~1GB input + ~1GB canvas state; conservative B=8
+    (512, 8, 64),      # 8×8 canvas patches
+    (512, 16, 64),     # 16×16 canvas patches
+    (512, 64, 8),      # 64×64 canvas patches — conservative batch size
 ]
 
 # DINOv3 passive baselines: 2 variants × 7 resolutions = 14 evals.
@@ -371,6 +369,17 @@ def build_eval_matrix(
                                     mode="finetuned", resolutions=IN1K_RESOLUTIONS))
     if "recon" in tasks:
         jobs.extend(_recon_jobs(out_dir, n_runs=n_runs, ts=ts))
+
+    # Breadth-first scheduling: run every config once at r=0, then r=1, etc.
+    # Lets a preview figure emerge after len(configs) jobs (end of round 0)
+    # instead of only when the whole matrix finishes. Filenames are pure
+    # functions of (structural fields, invocation ts) so reordering here
+    # does not affect filenames, skip-existing, sync, or any consumer.
+    jobs.sort(key=lambda j: (
+        j.run_idx, j.task, j.model,
+        j.scene_size or 0, j.canvas_grid or 0, j.input_px or 0,
+        j.policy or "",
+    ))
     return jobs
 
 

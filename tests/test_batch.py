@@ -127,6 +127,23 @@ def test_output_paths_unique():
     assert len(paths) == len(set(paths)), "Duplicate output paths"
 
 
+def test_breadth_first_scheduling():
+    """build_eval_matrix() emits jobs in breadth-first order: every r=0 runs
+    before any r=1, etc. Round 0 covers every cell once, so an early
+    interruption still yields n=1 per cell for a preview figure."""
+    jobs = build_eval_matrix(Path("/tmp/test"), n_runs=5, n_timesteps=21, tasks=ALL_TASKS)
+    positions_by_run_idx: dict[int, list[int]] = {}
+    for i, j in enumerate(jobs):
+        positions_by_run_idx.setdefault(j.run_idx, []).append(i)
+    max_by_round = {r: max(ps) for r, ps in positions_by_run_idx.items()}
+    min_by_round = {r: min(ps) for r, ps in positions_by_run_idx.items()}
+    for r in sorted(positions_by_run_idx)[:-1]:
+        assert max_by_round[r] < min_by_round[r + 1], (
+            f"run_idx={r + 1} starts at position {min_by_round[r + 1]} "
+            f"before run_idx={r} finishes at {max_by_round[r]} — not breadth-first"
+        )
+
+
 def test_all_outputs_under_task_subdirs():
     out_dir = Path("/tmp/test_results")
     jobs = build_eval_matrix(out_dir, n_runs=1, n_timesteps=21, tasks=ALL_TASKS)

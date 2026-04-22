@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from canvit_eval.config import TEACHER_REPO, ade20k_root
+from canvit_eval.provenance import device_info, provenance
 from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
 from canvit_eval.tasks.ade20k_obj.paths import FEATURES_DIR, features_path
 
@@ -147,6 +148,14 @@ def main(cfg: ExportFeaturesConfig) -> None:
         "scene_size_px": cfg.scene_size_px,
         "teacher_repo": cfg.teacher_repo,
         "resize_mode": cfg.resize_mode,
+        "provenance": {
+            "stage": "dv3_features",
+            "batch_size": cfg.batch_size,
+            "amp": cfg.amp,
+            "ade20k_root": str(cfg.ade20k_root),
+            **device_info(device),
+            **provenance(),
+        },
     }, out_path)
     actual_bytes = out_path.stat().st_size
     expected_bytes = _expected_size_bytes(n_images, grid, embed_dim, cfg.scene_size_px)
