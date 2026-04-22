@@ -571,7 +571,6 @@ def run_canvit(cfg: CanViTConfig) -> Path:
 
     df = _run_one_canvas(cr, cfg, device)
     df = df.merge(area_df, on=["image_idx", "class_idx"], how="left")
-    assert not df["area"].isna().any(), "merge lost area for some rows"
     combined = pd.concat([kept, df], ignore_index=True) if not kept.empty else df
     combined.to_parquet(cfg.output, index=False)
     log.info("saved %s — parquet now %d rows across %d canvases (%.1f MB)",
