@@ -33,9 +33,13 @@ PolicyName = Literal[
     "repeated_full_scene",
 ]
 
-# Subset for IN1k classification (entropy C2F and constant full scene not applicable).
+# Subset for IN1k classification: entropy C2F excluded (requires a get_spatial_fn
+# that the classification head doesn't expose). repeated_full_scene IS applicable
+# — the canvas is state-ful, so repeated same-input produces a non-trivial
+# temporal trajectory and serves as a baseline for "does policy matter beyond
+# just iterating the model?"
 IN1K_POLICIES: list[PolicyName] = [
-    "coarse_to_fine", "fine_to_coarse", "full_then_random", "random",
+    "coarse_to_fine", "fine_to_coarse", "full_then_random", "random", "repeated_full_scene",
 ]
 
 GetSpatialFn = Callable[[Tensor], Tensor]
