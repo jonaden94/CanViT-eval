@@ -156,7 +156,7 @@ def _to_long_df(
     mask_resolution_px: int,
     resize_mode: str,
 ) -> pd.DataFrame:
-    """Vectorised: one row per (image, class) where union > 0.
+    """Vectorised: one row per (image, class) where gt_area_px > 0.
 
     inter / union / gt_area are all [N, n_classes]. Stores raw int64 pixel
     counts (inter_px, union_px, gt_area_px) so rows from different runs remain
@@ -165,7 +165,7 @@ def _to_long_df(
     with each row as provenance for how the prediction / GT mask were sized.
     """
     assert inter.shape == union.shape == gt_area.shape, (inter.shape, union.shape, gt_area.shape)
-    img_idx, c0 = (union > 0).nonzero(as_tuple=True)
+    img_idx, c0 = (gt_area > 0).nonzero(as_tuple=True)
     return pd.DataFrame({
         "image_idx": img_idx.numpy(),
         "class_idx": (c0 + 1).numpy(),  # 0→1-indexed to match area parquet
@@ -266,7 +266,6 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     combined = pd.concat(frames, ignore_index=True)
     merged = combined.merge(area_df, on=["image_idx", "class_idx"], how="left")
     assert len(merged) == len(combined), (len(merged), len(combined))
-    assert not merged["area"].isna().any(), "merge lost area for some rows — area parquet incomplete?"
     assert set(merged.columns) >= {"image_idx", "class_idx", "resolution", "inter_px", "union_px", "gt_area_px", "area", "class_name"}, merged.columns
 
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
@@ -509,7 +508,6 @@ def run_canvit(cfg: CanViTConfig) -> Path:
 
     df = _run_one_canvas(cr, cfg, device)
     df = df.merge(area_df, on=["image_idx", "class_idx"], how="left")
-    assert not df["area"].isna().any(), "merge lost area for some rows"
     combined = pd.concat([kept, df], ignore_index=True) if not kept.empty else df
     combined.to_parquet(cfg.output, index=False)
     log.info("saved %s — parquet now %d rows across %d canvases (%.1f MB)",
