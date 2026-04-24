@@ -1,10 +1,17 @@
-"""Reproducibility metadata for eval sidecars."""
+"""Reproducibility metadata for eval sidecars.
 
-import os
+Explicitly OMITS identity-revealing fields (hostname, cwd, absolute paths in
+cmdline) so sidecars are shippable alongside eval artifacts in anonymized
+double-blind submission bundles. Keep it that way: add config / hardware /
+git metadata freely; never add anything that names a user, host, or path
+outside the repo tree.
+"""
+
 import platform
 import subprocess
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -29,19 +36,48 @@ def git_dirty() -> bool:
     return bool(_git("status", "--porcelain"))
 
 
+def _safe_cmdline() -> str:
+    """argv rendered repo-root-relative for argv[0], verbatim for the rest.
+
+    argv[0] is normally an absolute path into the repo (e.g.
+    `/home/<user>/projects/canvit-eval/canvit_eval/tasks/ade20k_obj/__main__.py`).
+    Relativising it to the repo root produces a stable, anonymizable string
+    (`canvit_eval/tasks/ade20k_obj/__main__.py`). If argv[0] isn't under a git
+    repo (unusual), we fall back to just the basename.
+
+    argv[1:] (task flags, values) is preserved verbatim. If a caller passes
+    an absolute path as a flag value, that's a separate anonymization concern
+    for the task layer, not this helper.
+    """
+    if not sys.argv:
+        return ""
+    head = Path(sys.argv[0])
+    repo_root = _git("rev-parse", "--show-toplevel")
+    if repo_root:
+        try:
+            head = head.resolve().relative_to(repo_root)
+        except ValueError:
+            head = Path(head.name)
+    else:
+        head = Path(head.name)
+    return " ".join([str(head), *sys.argv[1:]])
+
+
 def provenance() -> dict[str, Any]:
     """Env-level reproducibility dict. Task-specific fields (input paths, hyper-
-    params, GPU name) are added alongside by each task's sidecar writer."""
+    params, GPU name) are added alongside by each task's sidecar writer.
+
+    Deliberately excludes `hostname`, `cwd`, and the absolute-path form of
+    `cmdline` — see module docstring.
+    """
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git_commit": git_commit(),
         "git_branch": git_branch(),
         "git_dirty": git_dirty(),
-        "hostname": platform.node(),
-        "cwd": os.getcwd(),
         "python_version": platform.python_version(),
         "torch_version": torch.__version__,
-        "cmdline": " ".join(sys.argv),
+        "cmdline": _safe_cmdline(),
     }
 
 
