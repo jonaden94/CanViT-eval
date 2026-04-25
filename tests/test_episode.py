@@ -5,13 +5,13 @@ Uses the real CanViT model from HuggingFace — tiny forward passes on CPU.
 
 import pytest
 import torch
-from canvit_pytorch import CanViTForPretrainingHFHub, SegmentationProbe, Viewpoint, resolve_repo
+from canvit_pytorch import CanViTForPretrainingHFHub, SegmentationProbe, Viewpoint, resolve_canvit_repo
 
 from canvit_eval.episode import EpisodeStep, run_episode
 from canvit_eval.policies import PolicyName, make_policy
 
-MODEL_REPO = resolve_repo("canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02")
-PROBE_REPO = resolve_repo("probe-ade20k-40k-s512-c32-in21k")
+MODEL_REPO = resolve_canvit_repo("canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02")
+PROBE_REPO = resolve_canvit_repo("probe-ade20k-40k-s512-c32-in21k")
 DEVICE = torch.device("cpu")
 CANVAS_GRID = 8  # small for fast tests
 

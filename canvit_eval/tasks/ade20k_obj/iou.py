@@ -24,7 +24,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import tyro
-from canvit_pytorch import CanViTForSemanticSegmentation, SegmentationProbe, resolve_repo
+from canvit_pytorch import CanViTForSemanticSegmentation, SegmentationProbe, resolve_canvit_repo
 from canvit_specialize.datasets.ade20k import (
     IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms,
 )
@@ -55,14 +55,14 @@ def _canvas_policy(canvas_grid: int) -> str:
 _UPSAMPLE_CHUNK = 8
 
 CANVIT_PROBE_REPOS: dict[int, str] = {
-    8:  resolve_repo("probe-ade20k-40k-s512-c8-in21k"),
-    9:  resolve_repo("probe-ade20k-40k-s512-c9-in21k"),
-    10: resolve_repo("probe-ade20k-40k-s512-c10-in21k"),
-    12: resolve_repo("probe-ade20k-40k-s512-c12-in21k"),
-    16: resolve_repo("probe-ade20k-40k-s512-c16-in21k"),
-    24: resolve_repo("probe-ade20k-40k-s512-c24-in21k"),
-    32: resolve_repo("probe-ade20k-40k-s512-c32-in21k"),
-    64: resolve_repo("probe-ade20k-40k-s1024-c64-in21k"),
+    8:  resolve_canvit_repo("probe-ade20k-40k-s512-c8-in21k"),
+    9:  resolve_canvit_repo("probe-ade20k-40k-s512-c9-in21k"),
+    10: resolve_canvit_repo("probe-ade20k-40k-s512-c10-in21k"),
+    12: resolve_canvit_repo("probe-ade20k-40k-s512-c12-in21k"),
+    16: resolve_canvit_repo("probe-ade20k-40k-s512-c16-in21k"),
+    24: resolve_canvit_repo("probe-ade20k-40k-s512-c24-in21k"),
+    32: resolve_canvit_repo("probe-ade20k-40k-s512-c32-in21k"),
+    64: resolve_canvit_repo("probe-ade20k-40k-s1024-c64-in21k"),
 }
 
 
@@ -264,7 +264,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
         )
         assert isinstance(mask_res_px, int) and mask_res_px > 0, mask_res_px
 
-        probe_repo = resolve_repo(f"probe-ade20k-40k-dv3b-{res_px}px")
+        probe_repo = resolve_canvit_repo(f"probe-ade20k-40k-dv3b-{res_px}px")
         probe = SegmentationProbe.from_pretrained(probe_repo).to(device).eval()
         log.info("  %dpx: features=%s grid=%d mask_res=%d teacher=%s probe=%s",
                  res_px, path.name, grid, mask_res_px, teacher_repo, probe_repo)
