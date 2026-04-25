@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Literal, get_args
 
 import tyro
+from canvit_pytorch import resolve_repo
 
 from canvit_eval.policies import IN1K_POLICIES, PolicyName
 
@@ -165,23 +166,23 @@ _BATCH_SIZE_BY_SCENE: dict[int, int] = {
 # via `from canvit_eval.batch import ABLATION_REPOS` for FLOP/param analysis.
 
 ABLATION_REPOS: dict[str, str] = {
-    "baseline":      "canvit/canvitb16-abl-baseline-2026-03-02",
-    "qkvo-dcan256":  "canvit/canvitb16-abl-qkvo-dcan256-2026-03-02",
-    "qkvo-dcan384":  "canvit/canvitb16-abl-qkvo-dcan384-2026-03-02",
-    "dcan256":       "canvit/canvitb16-abl-dcan256-2026-03-02",
-    "no-dense":      "canvit/canvitb16-abl-no-dense-2026-03-02",
-    "no-fiid-1riid": "canvit/canvitb16-abl-no-fiid-1riid-2026-03-02",
-    "no-fiid-2riid": "canvit/canvitb16-abl-no-fiid-2riid-2026-03-06",
-    "no-bptt":       "canvit/canvitb16-abl-no-bptt-2026-03-06",
-    "no-reads":      "canvit/canvitb16-abl-no-reads-2026-03-02",
-    "no-vpe":        "canvit/canvitb16-abl-no-vpe-2026-03-03",
-    "rw-stride6":    "canvit/canvitb16-abl-rw-stride6-2026-03-03",
-    "vit-s":         "canvit/canvitb16-abl-vit-s-2026-03-03",
+    "baseline":      resolve_repo("canvitb16-abl-baseline-2026-03-02"),
+    "qkvo-dcan256":  resolve_repo("canvitb16-abl-qkvo-dcan256-2026-03-02"),
+    "qkvo-dcan384":  resolve_repo("canvitb16-abl-qkvo-dcan384-2026-03-02"),
+    "dcan256":       resolve_repo("canvitb16-abl-dcan256-2026-03-02"),
+    "no-dense":      resolve_repo("canvitb16-abl-no-dense-2026-03-02"),
+    "no-fiid-1riid": resolve_repo("canvitb16-abl-no-fiid-1riid-2026-03-02"),
+    "no-fiid-2riid": resolve_repo("canvitb16-abl-no-fiid-2riid-2026-03-06"),
+    "no-bptt":       resolve_repo("canvitb16-abl-no-bptt-2026-03-06"),
+    "no-reads":      resolve_repo("canvitb16-abl-no-reads-2026-03-02"),
+    "no-vpe":        resolve_repo("canvitb16-abl-no-vpe-2026-03-03"),
+    "rw-stride6":    resolve_repo("canvitb16-abl-rw-stride6-2026-03-03"),
+    "vit-s":         resolve_repo("canvitb16-abl-vit-s-2026-03-03"),
 }
 
 
 def _probe_repo(scene: int, grid: int) -> str:
-    return f"canvit/probe-ade20k-40k-s{scene}-c{grid}-in21k"
+    return resolve_repo(f"probe-ade20k-40k-s{scene}-c{grid}-in21k")
 
 
 # ── Job model ──────────────────────────────────────────────────────────
@@ -273,7 +274,7 @@ def _ade20k_seg_jobs(
             jobs.append(EvalJob(
                 task="ade20k-seg",
                 args=["ade20k-seg-dinov3",
-                      "--probe-repo", f"canvit/probe-ade20k-40k-{variant}-{res}px",
+                      "--probe-repo", resolve_repo(f"probe-ade20k-40k-{variant}-{res}px"),
                       "--teacher-repo", teacher_repo,
                       "--eval-resolution", str(res), "--output", str(out)],
                 output=out, output_stem=f"{stem}_",

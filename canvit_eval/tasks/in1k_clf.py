@@ -12,7 +12,7 @@ from typing import Literal
 import torch
 from torch.utils.data import DataLoader
 
-from canvit_pytorch import CanViTForImageClassification
+from canvit_pytorch import CanViTForImageClassification, resolve_repo
 from canvit_specialize.training.utils import collect_metadata
 
 from canvit_eval.config import DEFAULT_PRETRAINED_REPO, EpisodeConfig, imagenet_val_dir
@@ -23,8 +23,8 @@ from canvit_eval.tasks.base import TaskConfig
 log = logging.getLogger(__name__)
 TOP_K = 5
 
-DEFAULT_FINETUNED_REPO = "canvit/canvitb16-add-vpe-finetune-g128px-s512px-in1k-2026-04-06"
-DEFAULT_PROBE_REPO = "yberreby/dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe"
+DEFAULT_FINETUNED_REPO = resolve_repo("canvitb16-add-vpe-finetune-g128px-s512px-in1k-2026-04-06")
+DEFAULT_PROBE_REPO = resolve_repo("dinov3-vitb16-lvd1689m-in1k-512x512-linear-clf-probe")
 
 # Flagship CanViT-B was pretrained at canvas_grid=32 only — its CLS standardizer
 # is initialized for c=32 and undefined for other grids. Fusion (proj → destandardize
