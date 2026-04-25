@@ -1,9 +1,9 @@
 """CanViT evaluation CLI — thin dispatch over the task Configs.
 
-    uv run python -m canvit_eval ade20k-seg-canvit --probe-repo canvit/probe-... [--episode.policy ...]
-    uv run python -m canvit_eval ade20k-seg-dinov3 --probe-repo canvit/... --eval-resolution 128
+    uv run python -m canvit_eval ade20k-seg-canvit --probe-repo <org>/probe-... [--episode.policy ...]
+    uv run python -m canvit_eval ade20k-seg-dinov3 --probe-repo <org>/... --eval-resolution 128
     uv run python -m canvit_eval in1k-clf
-    uv run python -m canvit_eval reconstruction --model-repo canvit/canvitb16-abl-...
+    uv run python -m canvit_eval reconstruction --model-repo <org>/canvitb16-abl-...
 
 Each subcommand IS its task's Config dataclass (each has a `run()` method);
 there's no separate CLI-level wrapper.
