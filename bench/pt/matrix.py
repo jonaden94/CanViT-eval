@@ -260,8 +260,8 @@ def main(args: Args) -> None:
     # user-persistent path. The default location persists across processes,
     # but /tmp is subject to systemd-tmpfiles cleanup by file age, so
     # long-gap re-runs miss the cache and pay full cold compile (~15s CUDA).
-    # ~/.cache is user-scoped and not cleaned. Verified empirically on crockett
-    # 2026-04-17: pass 0 cold compile 14.5s, pass 1 same-shape 2.1s.
+    # ~/.cache is user-scoped and not cleaned. Local timing checks showed a
+    # large same-shape speedup after the first cold compile.
     cache_dir = Path.home() / ".cache" / "torch" / "inductor"
     cache_dir.mkdir(parents=True, exist_ok=True)
     child_env = {**os.environ, "TORCHINDUCTOR_CACHE_DIR": str(cache_dir)}

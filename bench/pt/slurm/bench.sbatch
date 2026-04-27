@@ -1,5 +1,4 @@
 #!/bin/bash
-#SBATCH --account=def-skrishna_gpu
 #SBATCH --gres=gpu:nvidia_h100_80gb_hbm3_2g.20gb:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4

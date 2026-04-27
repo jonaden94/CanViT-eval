@@ -57,8 +57,7 @@ uv run python bench/pt/analyze.py --pattern 'bench/pt/results/*.jsonl'
 
 ## Raw-data location
 
-Results land in `bench/pt/results/` (in-repo, gitignored). On crockett
-this is `/home/yberreby/projects/canvit-eval/bench/pt/results/`.
+Results land in `bench/pt/results/` (in-repo, gitignored).
 
 Old 2026-03-14 data that produced the currently-tracked `hw_bench.json`
 is preserved as a tarball in `bench/pt/archive/canvit-bench-raw-20260314.tgz`.
@@ -92,5 +91,5 @@ but `/tmp` is subject to systemd-tmpfiles cleanup by file age on Linux,
 so long-gap re-runs can still miss cache and pay the full ~15 s cold
 compile. Moving to `~/.cache` gives user-scoped, non-cleaned storage.
 
-Verified empirically on crockett 2026-04-17: pass 0 cold compile 14.5 s,
-pass 1 same-shape 2.1 s (~7× speedup).
+Local timing checks showed a large same-shape speedup after the first cold
+compile.

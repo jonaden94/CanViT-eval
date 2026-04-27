@@ -40,7 +40,7 @@ def _safe_cmdline() -> str:
     """argv rendered repo-root-relative for argv[0], verbatim for the rest.
 
     argv[0] is normally an absolute path into the repo (e.g.
-    `/home/<user>/projects/canvit-eval/canvit_eval/tasks/ade20k_obj/__main__.py`).
+    `/path/to/repo/canvit_eval/tasks/ade20k_obj/__main__.py`).
     Relativising it to the repo root produces a stable, anonymizable string
     (`canvit_eval/tasks/ade20k_obj/__main__.py`). If argv[0] isn't under a git
     repo (unusual), we fall back to just the basename.

@@ -1,6 +1,6 @@
 # ADE20K Mask Analysis
 
-Produces per-(image, class) and per-(image, class, timestep) intersection/union counts for the ADE20K val set, feeding the mask-size figure in CanViT-Toward-AVFMs: "when/why does CanViT beat DINOv3, by mask size?"
+Produces per-(image, class) and per-(image, class, timestep) intersection/union counts for the ADE20K val set, feeding the paper's mask-size figure: "when/why does CanViT beat DINOv3, by mask size?"
 
 Output paths are defined once in `paths.py` (SSOT). Append `--help` to any command below for the full flag set.
 
@@ -10,7 +10,7 @@ Output paths are defined once in `paths.py` (SSOT). Append `--help` to any comma
 
 **Also store `gt_area_px`.** Needed for mask-size binning downstream. Free to compute in the same pass since the target mask is already loaded.
 
-**No binning in eval.** Raw counts are saved; binning (bin count, linear vs log, bin edges) is a figure-level decision in CanViT-Toward-AVFMs. Eval does not re-run when the figure's bins change.
+**No binning in eval.** Raw counts are saved; binning (bin count, linear vs log, bin edges) is a figure-level decision in the paper-export pipeline. Eval does not re-run when the figure's bins change.
 
 **Sanity check.** After running, `mean over c of (Σ inter[:,c]) / (Σ union[:,c])` should match the headline mIoU from `ade20k_seg.py`. Divergence = bug.
 

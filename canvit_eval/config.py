@@ -43,7 +43,7 @@ def _resolve_path(env_var: str, known_paths: list[str], description: str) -> Pat
 def ade20k_root() -> Path:
     return _resolve_path(
         env_var="ADE20K_ROOT",
-        known_paths=["/datasets/ADE20k/ADEChallengeData2016"],  # crockett
+        known_paths=["/datasets/ADE20k/ADEChallengeData2016"],
         description="ADE20K root",
     )
 
@@ -53,8 +53,8 @@ def imagenet_val_dir() -> Path:
     return _resolve_path(
         env_var="IMAGENET_VAL",
         known_paths=[
-            "/datasets/ILSVRC/Data/CLS-LOC/val",       # crockett
-            "/datashare/imagenet/ILSVRC2012/val",       # nibi
+            "/datasets/ILSVRC/Data/CLS-LOC/val",
+            "/datashare/imagenet/ILSVRC2012/val",
         ],
         description="ImageNet val dir",
     )

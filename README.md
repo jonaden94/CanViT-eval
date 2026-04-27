@@ -1,12 +1,11 @@
 # CanViT-eval
 
 Evaluation and benchmarking for CanViT. Produces `.pt` result files consumed by
-[CanViT-Toward-AVFMs](https://github.com/m2b3/CanViT-Toward-AVFMs) for figures
-and tables. All models and probes load from HuggingFace Hub — no local
-checkpoints needed.
+the paper-export pipeline for figures and tables. All models and probes can load
+from HuggingFace Hub or from a local checkpoint mirror.
 
-Dataset paths autodetect on crockett and Nibi; override with `ADE20K_ROOT` /
-`IMAGENET_VAL` env vars otherwise (see `.envrc.example`).
+Dataset paths autodetect from a small set of common local mounts; override with
+`ADE20K_ROOT` / `IMAGENET_VAL` env vars otherwise (see `.envrc.example`).
 
 ## Usage
 
@@ -107,4 +106,4 @@ uv run pytest
 | [CanViT-PyTorch](https://github.com/m2b3/CanViT-PyTorch) (public, canonical) | Core model (`canvit_pytorch` package), probe architecture (`canvit_pytorch.probes`) |
 | [CanViT-specialize](https://github.com/m2b3/CanViT-specialize) | Probe training, ADE20K dataloader, IoU metric |
 | [CanViT-pretrain](https://github.com/m2b3/CanViT-pretrain) | Model pretraining |
-| [CanViT-Toward-AVFMs](https://github.com/m2b3/CanViT-Toward-AVFMs) | Paper (.pt → JSON → PDF) |
+| Paper repository | Paper (.pt → JSON → PDF) |
