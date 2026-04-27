@@ -30,7 +30,7 @@ class BatchResult:
 
 
 def load_model(model_repo: str, device: torch.device) -> CanViTForPretrainingHFHub:
-    """Load CanViT from HuggingFace Hub. Single call site for model loading."""
+    """Load CanViT from a repo ID or local checkpoint directory."""
     log.info("Loading model: %s", model_repo)
     model = CanViTForPretrainingHFHub.from_pretrained(model_repo).to(device).eval()
     log.info("  canvas_dim=%d, local_dim=%d", model.canvas_dim, model.local_dim)

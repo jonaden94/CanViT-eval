@@ -1,6 +1,7 @@
 """Integration tests for the core episode runner.
 
-Uses the real CanViT model from HuggingFace — tiny forward passes on CPU.
+Loads real CanViT weights from the configured checkpoint root and runs reduced
+CPU forward passes through the episode code.
 """
 
 import pytest

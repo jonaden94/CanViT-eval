@@ -46,7 +46,7 @@ class ADE20kBaseConfig(TaskConfig):
 
 @dataclass(kw_only=True)
 class CanViTConfig(ADE20kBaseConfig):
-    """ADE20K seg with a CanViT backbone — multi-timestep episode."""
+    """ADE20K seg with a CanViT model — multi-timestep episode."""
     output: Path = Path("results/ade20k_seg.pt")
     episode: EpisodeConfig = field(default_factory=EpisodeConfig)
 

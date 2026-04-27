@@ -16,7 +16,7 @@ from canvit_eval.policies import PolicyName
 log = logging.getLogger(__name__)
 
 # Canonical pretrained CanViT-B repo — IN21k, additive canvas, VPE, DINOv3-B/16 teacher.
-# Single source of truth; consumed by EpisodeConfig + all tasks that load the pretrained backbone.
+# Single source of truth; consumed by EpisodeConfig + all tasks that load the pretrained CanViT model.
 DEFAULT_PRETRAINED_REPO = resolve_canvit_repo("canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02")
 
 # DINOv3 teacher repo (public, third-party — no resolve wrap).
