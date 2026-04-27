@@ -14,6 +14,7 @@ from canvit_eval.batch import (
     DINOV3_VARIANTS,
     EXTRA_CANVAS_GRIDS,
     EXTRA_IN1K_RESOLUTIONS,
+    IN1K_POLICIES,
     IN1K_RESOLUTIONS,
     build_eval_matrix,
     filter_jobs,
@@ -27,7 +28,7 @@ _N_CANVIT_POLICY_N1 = len(ADE20K_RESOLUTIONS) * len(ALL_POLICIES)
 _N_DINOV3 = len(DINOV3_VARIANTS) * len(DINOV3_RESOLUTIONS)
 _N_CANVIT_T0 = len(CANVAS_GRIDS)
 _N_ADE20K_N1 = _N_CANVIT_POLICY_N1 + _N_DINOV3 + _N_CANVIT_T0  # 12 + 14 + 4 = 30
-_N_IN1K_POLICIES = 4  # IN1K_POLICIES: C2F, F2C, full_then_random, random — all non-deterministic
+_N_IN1K_POLICIES = len(IN1K_POLICIES)
 _N_IN1K_N1_BOTH_MODES = len(IN1K_RESOLUTIONS) * _N_IN1K_POLICIES * 2  # baseline: frozen + finetuned
 _N_RECON_N1 = len(ABLATION_REPOS)
 
