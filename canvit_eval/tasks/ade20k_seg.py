@@ -28,7 +28,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from canvit_eval.config import EpisodeConfig, TEACHER_REPO, ade20k_root
+from canvit_eval.config import EpisodeConfig, TEACHER_REPO, ade20k_root, require_existing_dir
 from canvit_eval.runner import eval_batches
 from canvit_eval.tasks.base import TaskConfig
 
@@ -68,6 +68,7 @@ class DINOv3Config(ADE20kBaseConfig):
 
 
 def _loader(cfg: ADE20kBaseConfig) -> DataLoader:
+    require_existing_dir(cfg.ade20k_root, description="ADE20K root", env_var="ADE20K_ROOT")
     img_tf, mask_tf = make_val_transforms(cfg.scene_size, cfg.resize_mode)
     dataset = ADE20kDataset(
         root=cfg.ade20k_root, split="validation",
@@ -116,6 +117,7 @@ def run_canvit(cfg: CanViTConfig) -> Path:
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     device = torch.device(cfg.device)
+    require_existing_dir(cfg.ade20k_root, description="ADE20K root", env_var="ADE20K_ROOT")
 
     seg = CanViTForSemanticSegmentation.from_pretrained_with_probe(
         pretrained_repo=cfg.episode.model_repo,
@@ -163,6 +165,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     """DINOv3 passive ADE20K: single forward pass at cfg.eval_resolution, mIoU at t=0."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     device = torch.device(cfg.device)
+    require_existing_dir(cfg.ade20k_root, description="ADE20K root", env_var="ADE20K_ROOT")
 
     teacher = load_teacher(cfg.teacher_repo, device)
     probe = SegmentationProbe.from_pretrained(cfg.probe_repo).to(device).eval()

@@ -31,7 +31,7 @@ from canvit_specialize.datasets.ade20k import (
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from canvit_eval.config import EpisodeConfig, ade20k_root
+from canvit_eval.config import EpisodeConfig, ade20k_root, require_existing_dir
 from canvit_eval.provenance import device_info, provenance
 from canvit_eval.runner import eval_batches
 from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
@@ -339,6 +339,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
 def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -> pd.DataFrame:
     """Run CanViT episode for one canvas_resolution; return long-form DataFrame."""
     assert canvas_grid in CANVIT_PROBE_REPOS, (canvas_grid, sorted(CANVIT_PROBE_REPOS))
+    require_existing_dir(cfg.ade20k_root_path, description="ADE20K root", env_var="ADE20K_ROOT")
     t0 = time.monotonic()
 
     probe_repo = CANVIT_PROBE_REPOS[canvas_grid]

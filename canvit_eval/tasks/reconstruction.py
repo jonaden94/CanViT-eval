@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 from canvit_specialize.training.utils import collect_metadata
 
-from canvit_eval.config import TEACHER_REPO, EpisodeConfig
+from canvit_eval.config import TEACHER_REPO, EpisodeConfig, require_existing_dir
 from canvit_eval.runner import eval_batches, load_model
 from canvit_eval.tasks.base import TaskConfig
 
@@ -71,6 +71,7 @@ class Config(TaskConfig):
 def evaluate(cfg: Config) -> Path:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     device = torch.device(cfg.device)
+    require_existing_dir(cfg.image_dir, description="Reconstruction image directory")
 
     model = load_model(cfg.model_repo, device)
     canvas_grid = cfg.episode.canvas_grid or cfg.scene_size // model.backbone.patch_size_px

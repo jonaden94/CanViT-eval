@@ -13,7 +13,7 @@ from canvit_specialize.datasets.ade20k import ADE20kDataset, ResizeMode, make_va
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from canvit_eval.config import TEACHER_REPO, ade20k_root
+from canvit_eval.config import TEACHER_REPO, ade20k_root, require_existing_dir
 from canvit_eval.provenance import device_info, provenance
 from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
 from canvit_eval.tasks.ade20k_obj.paths import FEATURES_DIR, features_path
@@ -63,6 +63,7 @@ def main(cfg: ExportFeaturesConfig) -> None:
     log.info("ade20k_root=%s", cfg.ade20k_root)
     log.info("out_path=%s", out_path)
 
+    require_existing_dir(cfg.ade20k_root, description="ADE20K root", env_var="ADE20K_ROOT")
     cfg.out_dir.mkdir(parents=True, exist_ok=True)
     teacher = load_teacher(cfg.teacher_repo, device)
     patch_size_px = teacher.model.config.patch_size

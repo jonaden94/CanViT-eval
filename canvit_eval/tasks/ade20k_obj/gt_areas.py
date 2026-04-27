@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from canvit_eval.config import ade20k_root
+from canvit_eval.config import ade20k_root, require_existing_dir
 from canvit_eval.provenance import provenance
 from canvit_eval.tasks.ade20k_obj.paths import (
     AREA_PARQUET,
@@ -149,6 +149,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s", datefmt="%H:%M:%S")
 
     root = ade20k_root()
+    require_existing_dir(root, description="ADE20K root", env_var="ADE20K_ROOT")
     log.info("=== build area dataframe ===")
     log.info("ade20k_root=%s", root)
     log.info("area parquet     → %s", AREA_PARQUET)

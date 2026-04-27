@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from canvit_pytorch import CanViTForImageClassification, resolve_canvit_repo
 from canvit_specialize.training.utils import collect_metadata
 
-from canvit_eval.config import DEFAULT_PRETRAINED_REPO, EpisodeConfig, imagenet_val_dir
+from canvit_eval.config import DEFAULT_PRETRAINED_REPO, EpisodeConfig, imagenet_val_dir, require_existing_dir
 from canvit_eval.datasets.imagenet import make_in1k_dataset
 from canvit_eval.runner import eval_batches
 from canvit_eval.tasks.base import TaskConfig
@@ -81,6 +81,7 @@ def evaluate(cfg: Config) -> Path:
     canvas_grid = cfg.episode.canvas_grid
     assert canvas_grid is not None, "canvas_grid required for IN1k"
 
+    require_existing_dir(cfg.val_dir, description="ImageNet validation directory", env_var="IMAGENET_VAL")
     clf = _load_classifier(cfg, device)
 
     patch_size_px = clf.canvit.backbone.patch_size_px

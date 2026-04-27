@@ -1,6 +1,8 @@
-"""Shared evaluation configuration — single source of truth for defaults.
+"""Shared evaluation configuration.
 
-Dataset paths: env var override > autodetect from known machine paths > error.
+Dataset paths resolve as env var override > known machine paths > generic
+fallback. Real runs validate the resolved paths where the data is opened so
+CLI help remains usable on machines without the datasets mounted.
 """
 
 import functools
@@ -24,7 +26,7 @@ TEACHER_REPO = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 
 
 def _resolve_path(env_var: str, known_paths: list[str], description: str) -> Path:
-    """Resolve a dataset path: env var > known paths > error. Cached + logged."""
+    """Resolve a dataset path without touching the filesystem on fallback."""
     v = os.environ.get(env_var)
     if v is not None:
         log.info("%s from env: %s", description, v)
@@ -33,10 +35,16 @@ def _resolve_path(env_var: str, known_paths: list[str], description: str) -> Pat
         if Path(p).is_dir():
             log.info("%s autodetected: %s", description, p)
             return Path(p)
-    raise RuntimeError(
-        f"{description} not found. Set {env_var} env var, "
-        f"or ensure one of {known_paths} exists."
-    )
+    fallback = Path(known_paths[0])
+    log.info("%s defaulting to %s; validate before use", description, fallback)
+    return fallback
+
+
+def require_existing_dir(path: Path, *, description: str, env_var: str | None = None) -> None:
+    if path.is_dir():
+        return
+    hint = f" Set {env_var} or pass the corresponding CLI path." if env_var else ""
+    raise RuntimeError(f"{description} not found at {path}.{hint}")
 
 
 @functools.cache
