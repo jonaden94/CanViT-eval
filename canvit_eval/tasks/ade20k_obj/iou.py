@@ -34,11 +34,10 @@ from tqdm import tqdm
 from canvit_eval.config import EpisodeConfig, ade20k_root, require_existing_dir
 from canvit_eval.provenance import device_info, provenance
 from canvit_eval.runner import eval_batches
-from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
 from canvit_eval.tasks.ade20k_obj.paths import (
-    AREA_PARQUET,
     CANVIT_PARQUET,
     DV3_PARQUET,
+    EXPECTED_N_VAL_IMAGES,
     FEATURES_DIR,
     features_path,
 )
@@ -70,7 +69,6 @@ CANVIT_PROBE_REPOS: dict[int, str] = {
 class BaseConfig(TaskConfig):
     scene_size_px: int = 512
     resize_mode: ResizeMode = "squish"
-    area_parquet: Path = AREA_PARQUET
 
 
 @dataclass(kw_only=True)
@@ -92,8 +90,10 @@ class CanViTConfig(BaseConfig):
     """On-the-fly CanViT episodes (EG-C2F) → per-(image, class, timestep) IoU.
 
     Parquet columns (see _to_long_df): image_idx, class_idx, canvas_resolution,
-    timestep, inter_px, union_px, gt_area_px, mask_resolution_px, resize_mode
-    — plus area + class_name joined from AREA_PARQUET before write.
+    timestep, inter_px, union_px, gt_area_px, mask_resolution_px, resize_mode.
+    Full N×C cross product per (canvas, timestep) — no gt_area filter; consumer
+    derives `iou = inter_px / union_px` and filters `gt_area_px > 0` on read
+    for GT-present-only analyses.
     """
 
     output: Path = CANVIT_PARQUET
@@ -167,10 +167,6 @@ def _batch_confusion(
     return inter, union, col_sum                    # gt_area = col sums
 
 
-def _load_area_df(path: Path) -> pd.DataFrame:
-    return pd.read_parquet(path, columns=["image_idx", "class_idx", "area", "class_name"])
-
-
 def _miou_sanity(inter_t: torch.Tensor, union_t: torch.Tensor, label: str) -> None:
     """Print global mIoU from summed intersection/union tensors [N, C]."""
     total_inter = inter_t.sum(0)
@@ -188,27 +184,21 @@ def _to_long_df(
     mask_resolution_px: int,
     resize_mode: str,
 ) -> pd.DataFrame:
-    """Vectorised: one row per (image, class) where the class is in the GT.
-
-    inter / union / gt_area are all [N, n_classes]. Filter: `gt_area > 0`.
-    That keeps TP-bearing rows and FN-only rows (class in GT, iou = 0 at
-    known area); drops FP-only rows (class NOT in GT, no area coordinate).
-    FP counts still live in the in-memory [B, C, C] tensor — only the
-    long-form emission is scoped to "iou vs GT mask area".
-
-    Stores raw int64 pixel counts (inter_px, union_px, gt_area_px). The
-    downstream consumer derives iou as inter_px / union_px on read.
-    `mask_resolution_px` + `resize_mode` travel with each row as provenance.
-    """
+    """One row per (image, class) — full N×C, no filter. Raw int64 counts;
+    consumer derives `iou = inter_px / union_px` and filters `gt_area_px > 0`
+    on read for GT-present-only analyses. Absent-class rows (gt_area_px==0)
+    carry FP-only data needed for verification probes."""
     assert inter.shape == union.shape == gt_area.shape, (inter.shape, union.shape, gt_area.shape)
-    img_idx, c0 = (gt_area > 0).nonzero(as_tuple=True)
+    N, C = inter.shape
+    img_idx = torch.arange(N).repeat_interleave(C)
+    cls_idx = torch.arange(1, C + 1).repeat(N)  # 1-indexed, matches ADE20K convention
     return pd.DataFrame({
         "image_idx": img_idx.numpy(),
-        "class_idx": (c0 + 1).numpy(),  # 0→1-indexed to match area parquet
-        **{k: v for k, v in extra_cols.items()},
-        "inter_px": inter[img_idx, c0].numpy().astype(np.int64),
-        "union_px": union[img_idx, c0].numpy().astype(np.int64),
-        "gt_area_px": gt_area[img_idx, c0].numpy().astype(np.int64),
+        "class_idx": cls_idx.numpy(),
+        **extra_cols,
+        "inter_px": inter.flatten().numpy().astype(np.int64),
+        "union_px": union.flatten().numpy().astype(np.int64),
+        "gt_area_px": gt_area.flatten().numpy().astype(np.int64),
         "mask_resolution_px": mask_resolution_px,
         "resize_mode": resize_mode,
     })
@@ -232,11 +222,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     device = torch.device(cfg.device)
     log.info("=== DINOv3 per-(image, class) IoU ===")
     log.info("device=%s  resolutions_px=%s  batch_size=%d", device, cfg.resolutions_px, cfg.batch_size)
-    log.info("area_parquet=%s", cfg.area_parquet)
     log.info("output=%s", cfg.output)
-
-    area_df = _load_area_df(cfg.area_parquet)
-    assert len(area_df) > 0, f"area parquet is empty: {cfg.area_parquet}"
 
     frames: list[pd.DataFrame] = []
     n_classes = NUM_CLASSES
@@ -299,16 +285,11 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
         log.info("  %dpx: %d (image, class) pairs in %.1fs", res_px, len(df), time.monotonic() - t0)
 
     combined = pd.concat(frames, ignore_index=True)
-    merged = combined.merge(area_df, on=["image_idx", "class_idx"], how="left")
-    assert len(merged) == len(combined), (len(merged), len(combined))
-    # gt_area > 0 filter in _to_long_df guarantees every emitted row has a
-    # matching entry in area_df (same (image_idx, class_idx) condition).
-    assert not merged["area"].isna().any(), "area merge left NaN rows — area parquet incomplete or out of sync?"
-    assert set(merged.columns) >= {"image_idx", "class_idx", "resolution", "inter_px", "union_px", "gt_area_px", "area", "class_name"}, merged.columns
+    assert set(combined.columns) >= {"image_idx", "class_idx", "resolution", "inter_px", "union_px", "gt_area_px"}, combined.columns
 
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_parquet(cfg.output, index=False)
-    log.info("saved %s  (%d rows, %.1f MB)", cfg.output, len(merged), cfg.output.stat().st_size / 1e6)
+    combined.to_parquet(cfg.output, index=False)
+    log.info("saved %s  (%d rows, %.1f MB)", cfg.output, len(combined), cfg.output.stat().st_size / 1e6)
 
     sidecar = cfg.output.with_suffix(".json")
     meta: dict[str, Any] = {
@@ -321,9 +302,9 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
         "resize_mode": cfg.resize_mode,
         "batch_size": cfg.batch_size,
         "amp": cfg.amp,
-        "n_images": int(merged["image_idx"].nunique()),
-        "n_rows": len(merged),
-        "n_classes_with_data": int(merged["class_idx"].nunique()),
+        "n_images": int(combined["image_idx"].nunique()),
+        "n_rows": len(combined),
+        "n_classes_present": int((combined["gt_area_px"] > 0).groupby(combined["class_idx"]).any().sum()),
         **device_info(device),
         **provenance(),
     }
@@ -465,7 +446,6 @@ def _build_subprocess_cmd(cfg: CanViTConfig, canvas_resolution: int) -> list[str
     cmd += ["--scene-size-px", str(cfg.scene_size_px)]
     cmd += ["--glimpse-resolution-px", str(cfg.glimpse_resolution_px)]
     cmd += ["--resize-mode", cfg.resize_mode]
-    cmd += ["--area-parquet", str(cfg.area_parquet)]
     cmd += ["--ade20k-root-path", str(cfg.ade20k_root_path)]
     cmd += ["--device", cfg.device]
     cmd += ["--batch-size", str(cfg.batch_size)]
@@ -499,7 +479,7 @@ def _write_canvit_sidecar(
         **device_info(device),
         "n_images": int(existing["image_idx"].nunique()) if not existing.empty else 0,
         "n_rows": int(len(existing)),
-        "n_classes_with_data": int(existing["class_idx"].nunique()) if not existing.empty else 0,
+        "n_classes_present": int((existing["gt_area_px"] > 0).groupby(existing["class_idx"]).any().sum()) if not existing.empty else 0,
         "timesteps_in_parquet": sorted(int(t) for t in existing["timestep"].unique()) if not existing.empty else [],
         **provenance(),
     }
@@ -554,11 +534,8 @@ def run_canvit(cfg: CanViTConfig) -> Path:
     log.info("device=%s  canvas_resolution=%d  model_repo=%s", device, cr, cfg.model_repo)
     log.info("n_timesteps=%d  glimpse_px=%d  scene_size_px=%d  resize_mode=%s",
              cfg.n_timesteps, cfg.glimpse_resolution_px, cfg.scene_size_px, cfg.resize_mode)
-    log.info("area_parquet=%s", cfg.area_parquet)
     log.info("output=%s", cfg.output)
 
-    area_df = _load_area_df(cfg.area_parquet)
-    assert len(area_df) > 0, f"area parquet is empty: {cfg.area_parquet}"
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
 
     if cfg.output.exists():
@@ -570,7 +547,6 @@ def run_canvit(cfg: CanViTConfig) -> Path:
         kept = pd.DataFrame()
 
     df = _run_one_canvas(cr, cfg, device)
-    df = df.merge(area_df, on=["image_idx", "class_idx"], how="left")
     combined = pd.concat([kept, df], ignore_index=True) if not kept.empty else df
     combined.to_parquet(cfg.output, index=False)
     log.info("saved %s — parquet now %d rows across %d canvases (%.1f MB)",

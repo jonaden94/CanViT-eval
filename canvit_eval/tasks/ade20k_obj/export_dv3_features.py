@@ -15,8 +15,7 @@ from tqdm import tqdm
 
 from canvit_eval.config import TEACHER_REPO, ade20k_root, require_existing_dir
 from canvit_eval.provenance import device_info, provenance
-from canvit_eval.tasks.ade20k_obj.gt_areas import EXPECTED_N_VAL_IMAGES
-from canvit_eval.tasks.ade20k_obj.paths import FEATURES_DIR, features_path
+from canvit_eval.tasks.ade20k_obj.paths import EXPECTED_N_VAL_IMAGES, FEATURES_DIR, features_path
 
 log = logging.getLogger(__name__)
 

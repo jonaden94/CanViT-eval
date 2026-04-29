@@ -6,9 +6,9 @@ Output paths are defined once in `paths.py` (SSOT). Append `--help` to any comma
 
 ## Design rationale
 
-**Raw counts, not IoU.** Parquets store `inter_px` and `union_px` (int64 pixel counts), not derived IoU floats. IoU is not reaggregatable: global mIoU = Σ(intersection) / Σ(union) across images, which differs from averaging per-image IoUs. Storing counts lets you compute both, and avoids 0/0 NaNs when a class is absent from an image.
+**Raw counts, not IoU.** Parquets store `inter_px`, `union_px`, `gt_area_px` (int64 pixel counts) per (image, class, [timestep]). IoU is not reaggregatable: global mIoU = Σ(intersection) / Σ(union) across images, which differs from averaging per-image IoUs. Storing counts lets you compute both, and avoids 0/0 NaNs when a class is absent from an image.
 
-**Also store `gt_area_px`.** Needed for mask-size binning downstream. Free to compute in the same pass since the target mask is already loaded.
+**Full N×C cross product, no filter.** The parquet contains every (image, class) pair — including absent-class cells where `gt_area_px = 0`. Consumers apply `gt_area_px > 0` themselves for per-mask analyses. Absent-class cells carry FP-only data needed for verification probes (e.g. "does the model produce fewer FPs on absent classes at higher t?"). Mask-area fraction is derived on read as `gt_area_px / mask_resolution_px²`.
 
 **No binning in eval.** Raw counts are saved; binning (bin count, linear vs log, bin edges) is a figure-level decision in the paper-export pipeline. Eval does not re-run when the figure's bins change.
 
@@ -20,7 +20,7 @@ Output paths are defined once in `paths.py` (SSOT). Append `--help` to any comma
 uv run python -m canvit_eval.tasks.ade20k_obj
 ```
 
-Runs all four stages in order. Each stage is skipped if its output already exists — the size + mtime of the skipped artifact are logged so you can sanity-check what's being reused. To force a stage to rerun, delete its output.
+Three stages: DINOv3 feature export → DINOv3 IoU → CanViT IoU. Each is skipped if its output already exists; delete the artifact to force a rerun.
 
 The orchestrator defaults to the canvas resolutions the paper figure consumes (`{8, 16, 32, 64}`) and the single DINOv3 input resolution it uses (128 px). Adjust the lists at the top of `__main__.py` to expand the sweep.
 
@@ -32,13 +32,7 @@ The orchestrator defaults to the canvas resolutions the paper figure consumes (`
 uv run python -m canvit_eval.tasks.ade20k_obj.export_dv3_features --eval-resolution-px 128
 ```
 
-**2. Area dataframe** — `AREA_PARQUET`, `AREA_STATS_PARQUET`
-
-```bash
-uv run python -m canvit_eval.tasks.ade20k_obj.gt_areas
-```
-
-**3. Per-image IoU** — DINOv3 and CanViT are independent subcommands.
+**2. Per-image IoU** — DINOv3 and CanViT are independent subcommands.
 
 ```bash
 # DINOv3 — consumes every features.pt present under FEATURES_DIR.

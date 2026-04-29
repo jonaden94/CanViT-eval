@@ -18,14 +18,16 @@ TASK_DIR = RESULTS_DIR / "ade20k_obj"
 # DINOv3 features (one .pt per input resolution, produced by export_dv3_features).
 FEATURES_DIR = TASK_DIR / "dv3_features"
 
-# Per-(image, class) GT area table — produced by `gt_areas`.
-AREA_PARQUET = TASK_DIR / "areas.parquet"
-AREA_STATS_PARQUET = TASK_DIR / "area_stats.parquet"
-
 # Per-row IoU outputs of `iou` (consumed by the paper's mask-size figure).
+# Full N×C cross product per (resolution / canvas, timestep) — gt_area_px is
+# emitted directly per row, so no separate areas table is needed.
 DV3_PARQUET = TASK_DIR / "dv3_iou.parquet"
 CANVIT_PARQUET = TASK_DIR / "canvit_iou.parquet"
 
 
 def features_path(eval_resolution_px: int) -> Path:
     return FEATURES_DIR / f"{eval_resolution_px}px_features.pt"
+
+
+# ADE20K val split — used as a sanity-check denominator across the pipeline.
+EXPECTED_N_VAL_IMAGES = 2000
