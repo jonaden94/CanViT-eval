@@ -115,7 +115,8 @@ class EntropyGuidedC2F:
     def _compute_entropy(self, state: RecurrentState) -> Tensor:
         spatial = self._get_spatial_fn(state.canvas)
         B, G = spatial.shape[0], self._canvas_grid
-        logits = self._probe(spatial.view(B, G, G, -1).float())
+        with torch.autocast(device_type=spatial.device.type, enabled=False):
+            logits = self._probe(spatial.view(B, G, G, -1).float())
         log_probs = torch.log_softmax(logits, dim=1)
         return -(log_probs.exp() * log_probs).sum(dim=1)
 
