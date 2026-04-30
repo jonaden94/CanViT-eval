@@ -380,7 +380,8 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
 
         for step in br.steps:
             spatial = seg.canvit.get_spatial(step.state.canvas).view(B, canvas_grid, canvas_grid, -1)
-            logits = probe(spatial.float())
+            with torch.autocast(device_type=device.type, enabled=False):
+                logits = probe(spatial.float())
             assert logits.ndim == 4 and logits.shape[0] == B, logits.shape
 
             # Chunked upsample keeps peak memory bounded. Upsampling the full
