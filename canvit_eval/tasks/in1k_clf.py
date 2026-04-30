@@ -108,7 +108,8 @@ def evaluate(cfg: Config) -> Path:
         all_labels[processed:processed + B] = labels.to(torch.int16)
 
         for step in br.steps:
-            logits = clf.head(clf.norm(step.state.recurrent_cls[:, 0]))
+            with torch.autocast(device_type=device.type, enabled=False):
+                logits = clf.head(clf.norm(step.state.recurrent_cls[:, 0].float()))
             top_k = logits.topk(TOP_K, dim=-1).indices
             all_top_k[processed:processed + B, step.t] = top_k.cpu().to(torch.int16)
             correct_top1[step.t] += (top_k[:, 0] == labels_gpu).sum()
