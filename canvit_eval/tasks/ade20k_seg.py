@@ -85,7 +85,8 @@ def _update_miou(
 ) -> None:
     """Run probe on features, interpolate to mask size if needed, accumulate IoU.
     Argmax + mask stay on GPU; `acc.update` itself avoids syncs."""
-    logits = probe(features.float())
+    with torch.autocast(device_type=features.device.type, enabled=False):
+        logits = probe(features.float())
     if logits.shape[-1] != masks.shape[-1]:
         logits = F.interpolate(logits, size=masks.shape[-2:], mode="bilinear", align_corners=False)
     acc.update(logits.argmax(dim=1), masks)
