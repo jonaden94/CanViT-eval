@@ -150,7 +150,9 @@ def build_matrix(
     """Generate all (pass × cell) jobs, shuffled per pass."""
     jobs: list[BenchJob] = []
 
-    # CPU cells: (model, scene, threads), dtype=fp32, eager (never compiled — see CLAUDE.md, bf16 CPU banned).
+    # CPU cells: (model, scene, threads), dtype=fp32, eager. bf16 has no CPU
+    # speedup on the bench host (Ryzen 7950X, no native bf16); compile would
+    # only mask measurement noise without changing kernels.
     cpu_cells: list[tuple[ModelName, int, int]] = [
         (m, s, t) for m in models for s in cpu_scenes for t in cpu_threads
     ]

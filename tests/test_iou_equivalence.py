@@ -3,11 +3,10 @@
 The authoritative reference is an integer-exact numpy implementation using
 `np.bincount` — this avoids torch.histc's float32 precision drift at high bin
 indices (which bites at (n_classes, n_classes)=(150, 150)² = 22500 bins).
+`_batch_confusion` must agree bit-for-bit with that reference.
 
-`_batch_confusion` is validated against that numpy reference with
-bit-identical equality. A pre-vectorization histc reference (test-local)
-is ALSO validated to document the float-rounding drift that motivated the
-rewrite — see `test_histc_has_precision_drift_at_high_bins`.
+A loop-based torch.histc path is also kept here purely to document the drift
+in `test_histc_has_precision_drift_at_high_bins`.
 """
 
 import numpy as np
@@ -23,9 +22,8 @@ except ImportError:  # pragma: no cover — dep-free import path for CPU-only CI
     NUM_CLASSES = 150
 
 
-# Reference implementation kept here (not in production) — used only to pin the
-# historical float32-precision behavior of torch.histc at n_classes=150. See
-# `test_histc_has_precision_drift_at_high_bins` below.
+# Test-only torch.histc reference — pins the float32 drift documented in
+# `test_histc_has_precision_drift_at_high_bins`. Not used in production.
 def _per_image_iou_histc_ref(
     pred: torch.Tensor,
     mask: torch.Tensor,
@@ -62,7 +60,7 @@ def _numpy_reference(preds: np.ndarray, masks: np.ndarray, n_classes: int):
 
 
 def _torch_histc_reference(preds: torch.Tensor, masks: torch.Tensor, n_classes: int):
-    """Loop-based histc reference (pre-vectorization per-image impl)."""
+    """Loop-based torch.histc reference (drift-documenting; see module docstring)."""
     inter, union, gt = [], [], []
     for i in range(preds.shape[0]):
         i_i, u_i, g_i = _per_image_iou_histc_ref(preds[i], masks[i], n_classes)

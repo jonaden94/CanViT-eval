@@ -96,8 +96,8 @@ class EntropyGuidedC2F:
         self._probe = probe
         self._get_spatial_fn = get_spatial_fn
 
-        # 3 C2F levels exactly match the canonical T=21 rollout: 1 full-scene + 4 half-quadrants + 16 quarter-tiles = 21.
-        # Level 0 is a single full-scene glimpse; no tile mask / visited bookkeeping needed.
+        # 3 C2F levels yield T=21: 1 full-scene + 4 half-quadrants + 16 quarter-tiles.
+        # Level 0 (full-scene) needs no tile mask or visited bookkeeping.
         N_LEVELS = 3
         self._levels = [level_viewpoints(lvl) for lvl in range(N_LEVELS)]
         self._level_starts: list[int] = []

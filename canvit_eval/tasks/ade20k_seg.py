@@ -108,13 +108,11 @@ def run_canvit(cfg: CanViTConfig) -> Path:
     """CanViT ADE20K: T-step episode, mIoU accumulator per timestep.
 
     `torch.inference_mode` is REQUIRED — without it the T=21 state propagation
-    builds an autograd tape that grows per-step, and the eval OOMs on any
-    canvas grid (regression caught 2026-04-14 on c9/c10/c12/c24).
+    builds an autograd tape that grows per-step and OOMs on any canvas grid.
 
     Per-batch work stays on GPU — `acc.update(argmax, masks)` adds to the
-    accumulator without a sync. The only host syncs happen in the final
-    `acc.compute()` loop after the full dataset is processed, producing T
-    floats total.
+    accumulator without a sync. Host syncs only happen in the final
+    `acc.compute()` loop after the full dataset is processed.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     device = torch.device(cfg.device)

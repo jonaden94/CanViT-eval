@@ -87,10 +87,10 @@ def _policy_runs_on_grid(policy: PolicyName, canvas_grid: int) -> bool:
     return True
 
 
-# (scene_size, canvas_grid, batch_size) for CanViT policy-curve evals.
-# Paper's canonical matrix. See EXTRA_ADE20K_RESOLUTIONS for the opt-in extension.
-# (512, 64, 8) added 2026-04-22 so the s=512/c=64 scene-size story can be told
-# apples-to-apples against s=1024/c=64 (kept for completeness; existing data).
+# (scene_size, canvas_grid, batch_size) for CanViT policy-curve evals — the
+# paper matrix. See EXTRA_ADE20K_RESOLUTIONS for the opt-in extension. The
+# (512, 64) entry lets s=512/c=64 be compared apples-to-apples against
+# s=1024/c=64 in the scene-size analysis.
 ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 32, 32),
     (512, 64, 8),

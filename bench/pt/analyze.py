@@ -78,7 +78,7 @@ def load_jsonl(path: Path) -> Run:
         t = row.get("type")
         if t == "iter":
             iter_ms.append(row["ms"])
-            # wall_s added 2026-03-14+; older files may lack it.
+            # wall_s may be absent in older JSONL files.
             iter_wall.append(row.get("wall_s", np.nan))
         elif t == "warmup":
             warm_ms.append(row["ms"])
