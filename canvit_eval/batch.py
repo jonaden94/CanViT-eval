@@ -12,7 +12,7 @@ when the prior run happened.
 
 Usage:
 
-    # Full paper matrix, 5 runs per stochastic policy, single GPU, sequential.
+    # Default eval matrix, 5 runs per stochastic policy, single GPU, sequential.
     # "Runs" = independent re-invocations; no explicit seeding is done, so
     # stochastic policies (random, full_then_random) sample from the default
     # RNG state. Deterministic policies trimmed to n=1 via DETERMINISTIC.
@@ -20,6 +20,9 @@ Usage:
 
     # Resume: skip any job whose structural output already exists on disk:
     uv run python -m canvit_eval.batch --n-runs 5 --skip-existing
+
+    # Memory-constrained GPU: clamp every generated job batch size.
+    uv run python -m canvit_eval.batch --max-batch-size 8
 
     # Filter by task / grid / policy:
     uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 32
@@ -228,10 +231,14 @@ class EvalJob:
 
     def describe(self) -> str:
         parts = [self.task, f"model={self.model}"]
-        if self.policy:      parts.append(f"policy={self.policy}")
-        if self.scene_size:  parts.append(f"s={self.scene_size}")
-        if self.canvas_grid: parts.append(f"c={self.canvas_grid}")
-        if self.input_px:    parts.append(f"input={self.input_px}px")
+        if self.policy:
+            parts.append(f"policy={self.policy}")
+        if self.scene_size:
+            parts.append(f"s={self.scene_size}")
+        if self.canvas_grid:
+            parts.append(f"c={self.canvas_grid}")
+        if self.input_px:
+            parts.append(f"input={self.input_px}px")
         parts.append(f"r={self.run_idx}")
         return " ".join(parts)
 
@@ -245,6 +252,7 @@ def _ade20k_seg_jobs(
 ) -> list[EvalJob]:
     jobs: list[EvalJob] = []
     d = out_dir / "ade20k_seg"
+    batch_size_by_scene = {scene: bs for scene, _, bs in ade20k_res}
 
     # (a) CanViT multi-timestep policy evals.
     for scene, grid, bs in ade20k_res:
@@ -284,7 +292,7 @@ def _ade20k_seg_jobs(
 
     # (c) CanViT single-glimpse probes (t=0, full-scene viewpoint — deterministic).
     for scene, grid in canvas_grids:
-        bs = _BATCH_SIZE_BY_SCENE[scene]
+        bs = batch_size_by_scene[scene]
         stem = f"canvit_s{scene}_c{grid}"
         out = d / f"{stem}_{ts}.pt"
         jobs.append(EvalJob(
@@ -345,16 +353,28 @@ def _recon_jobs(out_dir: Path, *, n_runs: int, ts: str) -> list[EvalJob]:
     return jobs
 
 
+def _cap_batch_sizes(
+    resolutions: list[tuple[int, int, int]], max_batch_size: int | None,
+) -> list[tuple[int, int, int]]:
+    if max_batch_size is None:
+        return resolutions
+    if max_batch_size <= 0:
+        raise ValueError("--max-batch-size must be positive")
+    return [(scene, grid, min(bs, max_batch_size)) for scene, grid, bs in resolutions]
+
+
 def build_eval_matrix(
     out_dir: Path, *,
     n_runs: int,
     n_timesteps: int,
     tasks: list[TaskName],
     include_extra_grids: bool = False,
+    max_batch_size: int | None = None,
 ) -> list[EvalJob]:
     """Generate all eval jobs. Pure — no side effects except the timestamp."""
     ts = _utc_timestamp()
     ade20k_res = ADE20K_RESOLUTIONS + (EXTRA_ADE20K_RESOLUTIONS if include_extra_grids else [])
+    ade20k_res = _cap_batch_sizes(ade20k_res, max_batch_size)
     canvas_grids = CANVAS_GRIDS + (EXTRA_CANVAS_GRIDS if include_extra_grids else [])
 
     jobs: list[EvalJob] = []
@@ -367,10 +387,12 @@ def build_eval_matrix(
         # Frozen mode sweeps extra resolutions for the "canvas size is irrelevant for IN1k"
         # paper claim; finetuned mode is baseline-only (see EXTRA_IN1K_RESOLUTIONS comment).
         frozen_res = IN1K_RESOLUTIONS + (EXTRA_IN1K_RESOLUTIONS if include_extra_grids else [])
+        frozen_res = _cap_batch_sizes(frozen_res, max_batch_size)
+        finetuned_res = _cap_batch_sizes(IN1K_RESOLUTIONS, max_batch_size)
         jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts,
                                     mode="frozen", resolutions=frozen_res))
         jobs.extend(_in1k_clf_jobs(out_dir, n_runs=n_runs, n_timesteps=n_timesteps, ts=ts,
-                                    mode="finetuned", resolutions=IN1K_RESOLUTIONS))
+                                    mode="finetuned", resolutions=finetuned_res))
     if "recon" in tasks:
         jobs.extend(_recon_jobs(out_dir, n_runs=n_runs, ts=ts))
 
@@ -422,6 +444,8 @@ class Args:
     """Include extra canvas grids beyond the paper-v1 set.
        ADE20K: adds c8..c24 at s=512. IN1k frozen: adds c8/c16/c64 at matched scene sizes
        (finetuned stays at c=32 — it was specialized there)."""
+    max_batch_size: int | None = None
+    """Clamp every generated job's batch size to this value. Useful on 8 GB GPUs."""
     policies: list[str] = field(default_factory=list)
     """Filter to these policies (empty = all). Applies to jobs that carry a policy field."""
     grids: list[int] = field(default_factory=list)
@@ -434,6 +458,7 @@ def main(args: Args) -> None:
         args.out_dir,
         n_runs=args.n_runs, n_timesteps=args.n_timesteps, tasks=args.tasks,
         include_extra_grids=args.include_extra_grids,
+        max_batch_size=args.max_batch_size,
     )
     jobs = filter_jobs(jobs, policies=args.policies or None, grids=args.grids or None)
 

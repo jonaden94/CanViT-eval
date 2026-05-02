@@ -12,8 +12,8 @@ Dataset paths autodetect from a small set of common local mounts; override with
 Tested on RTX 4090 (24 GB) and H100 SXM (80 GB). Default per-config batch sizes
 in `canvit_eval/batch.py::_BATCH_SIZE_BY_SCENE` assume ≥16 GB VRAM. On smaller
 GPUs (e.g. 8 GB), expect OOM on `in1k-clf` (default batch 64 at s=512/c=32) and
-on multi-step `ade20k-seg` policy curves; override the per-config batch size in
-that table or invoke single tasks with a smaller `--batch-size`.
+on multi-step `ade20k-seg` policy curves; run the batch matrix with
+`--max-batch-size 8` or invoke single tasks with a smaller `--batch-size`.
 
 ## Usage
 
@@ -50,6 +50,9 @@ uv run python -m canvit_eval reconstruction \
 # Deterministic policies are auto-trimmed to n=1; stochastic policies draw from
 # the default RNG (no explicit seed setting).
 uv run python -m canvit_eval.batch --n-runs N
+
+# Memory-constrained GPU:
+uv run python -m canvit_eval.batch --max-batch-size 8
 
 # Filter:
 uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 32 --policies coarse_to_fine
