@@ -214,6 +214,12 @@ def _build_dinov3(args: Args, device: torch.device) -> Callable[[], None]:
     if args.compiled:
         log.info("  torch.compile...")
         t0 = time.perf_counter()
+        # ASYMMETRIC ON PURPOSE — do not "uniformize" with `teacher.compile()` or
+        # `torch.compile(teacher)`. DINOv3Teacher's bench entry point is
+        # forward_norm_features() (not forward()), so both naive uniformizations
+        # silently no-op: warmup ≈ 0.05s and outputs are bit-identical to no-compile,
+        # vs ≈9s warmup + ~1.13× speedup with this asymmetric form (verified
+        # 2026-05-02 on RTX 4090, fp32, 512px). Compile the inner HF model directly.
         teacher.model = torch.compile(teacher.model)  # type: ignore[assignment]
         log.info("  registered in %.1fs", time.perf_counter() - t0)
 
