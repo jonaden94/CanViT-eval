@@ -7,6 +7,14 @@ from HuggingFace Hub or from a local checkpoint mirror.
 Dataset paths autodetect from a small set of common local mounts; override with
 `ADE20K_ROOT` / `IMAGENET_VAL` env vars otherwise (see `.envrc.example`).
 
+## Hardware notes
+
+Tested on RTX 4090 (24 GB) and H100 SXM (80 GB). Default per-config batch sizes
+in `canvit_eval/batch.py::_BATCH_SIZE_BY_SCENE` assume ≥16 GB VRAM. On smaller
+GPUs (e.g. 8 GB), expect OOM on `in1k-clf` (default batch 64 at s=512/c=32) and
+on multi-step `ade20k-seg` policy curves; override the per-config batch size in
+that table or invoke single tasks with a smaller `--batch-size`.
+
 ## Usage
 
 ### Single eval
@@ -35,12 +43,13 @@ uv run python -m canvit_eval reconstruction \
     --model-repo canvit/canvitb16-abl-baseline-2026-03-02
 ```
 
-### Batch — the full paper matrix
+### Batch eval matrix
 
 ```bash
-# Full paper matrix (5 runs per stochastic policy, sequential, single GPU).
-# No explicit seed setting — stochastic policies draw from default RNG.
-uv run python -m canvit_eval.batch --n-runs 5
+# Run the eval matrix with N runs per stochastic policy (sequential, single GPU).
+# Deterministic policies are auto-trimmed to n=1; stochastic policies draw from
+# the default RNG (no explicit seed setting).
+uv run python -m canvit_eval.batch --n-runs N
 
 # Filter:
 uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 32 --policies coarse_to_fine
