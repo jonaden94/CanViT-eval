@@ -218,12 +218,12 @@ def _build_dinov3(args: Args, device: torch.device) -> Callable[[], None]:
         # `torch.compile(teacher)`. DINOv3Teacher's bench entry point is
         # forward_norm_features() (not forward()); both nn.Module.compile() and
         # torch.compile(module) only intercept .forward(), so both naive
-        # uniformizations silently no-op — warmup stays near-instant and outputs
-        # are bit-identical to no-compile, while this asymmetric form pays a
-        # real warmup cost and yields a real speedup. Verified across fp32 and
-        # AMP bf16; see commit message of `git log --grep "asymmetric" --grep
-        # "compile"` in this repo for the empirical table. Compile the inner
-        # HF model directly.
+        # uniformizations silently no-op: warmup stays near-instant, outputs are
+        # bit-identical to no-compile, and the bench would silently lose the
+        # speedup with no error or warning. The asymmetric form below compiles
+        # the inner HF model directly, which is where the heavy work lives.
+        # Reproduce by running this script with --compiled vs without; the
+        # difference in warmup time + per-iter latency tells the story.
         teacher.model = torch.compile(teacher.model)  # type: ignore[assignment]
         log.info("  registered in %.1fs", time.perf_counter() - t0)
 
