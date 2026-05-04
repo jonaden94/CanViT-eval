@@ -5,7 +5,7 @@ Supports both pretrained (frozen probe, fused at construction) and finetuned mod
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
@@ -46,14 +46,10 @@ class Config(TaskConfig):
     val_dir: Path = field(default_factory=imagenet_val_dir)
 
     def __post_init__(self) -> None:
-        # In finetuned mode, the model repo that carries probe-fused weights is the
-        # finetuned one. Only auto-swap when the caller hasn't overridden the repo;
-        # otherwise respect the explicit override.
+        # Auto-swap the pretrained repo for the finetuned one in finetuned mode,
+        # but only when the caller hasn't already overridden it.
         if self.mode == "finetuned" and self.episode.model_repo == DEFAULT_PRETRAINED_REPO:
-            self.episode = EpisodeConfig(
-                model_repo=DEFAULT_FINETUNED_REPO,
-                **{k: getattr(self.episode, k) for k in EpisodeConfig.__dataclass_fields__ if k != "model_repo"},
-            )
+            self.episode = replace(self.episode, model_repo=DEFAULT_FINETUNED_REPO)
 
     def run(self) -> Path:
         return evaluate(self)

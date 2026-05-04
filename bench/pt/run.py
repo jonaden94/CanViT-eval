@@ -70,9 +70,7 @@ class Args:
     is noisy."""
 
 
-def _weight_dtype(args: Args) -> torch.dtype:
-    # Weights stay fp32; bf16 is applied via autocast at compute time.
-    return torch.float32
+# Weights stay fp32; bf16 is applied via autocast at compute time.
 
 
 @contextmanager
@@ -181,7 +179,7 @@ def _build_dinov3(args: Args, device: torch.device) -> Callable[[], None]:
     repo = DINOV3_REPOS[args.model]
     log.info("Loading %s from %s...", args.model, repo)
     t0 = time.perf_counter()
-    teacher = load_teacher(repo, device).to(dtype=_weight_dtype(args)).eval()
+    teacher = load_teacher(repo, device).to(dtype=torch.float32).eval()
     n_params = sum(p.numel() for p in teacher.parameters())
     log.info("  loaded in %.1fs, %.1fM params", time.perf_counter() - t0, n_params / 1e6)
 
@@ -196,7 +194,7 @@ def _build_dinov3(args: Args, device: torch.device) -> Callable[[], None]:
         log.info("  registered in %.1fs", time.perf_counter() - t0)
 
     x = torch.randn(args.batch_size, 3, args.scene_px, args.scene_px,
-                     device=device, dtype=_weight_dtype(args))
+                     device=device, dtype=torch.float32)
     n_patches = (args.scene_px // 16) ** 2
     log.info("  input: %dpx -> %d patches", args.scene_px, n_patches)
 
@@ -210,7 +208,7 @@ def _build_canvit(args: Args, device: torch.device) -> Callable[[], None]:
     log.info("Creating CanViT...")
     backbone = create_backbone("vitb16")
     model = CanViT(backbone=backbone, cfg=CanViTConfig())
-    model = model.to(device=device, dtype=_weight_dtype(args)).eval()
+    model = model.to(device=device, dtype=torch.float32).eval()
     n_params = sum(p.numel() for p in model.parameters())
     log.info("  %.1fM params", n_params / 1e6)
 
@@ -223,7 +221,7 @@ def _build_canvit(args: Args, device: torch.device) -> Callable[[], None]:
     canvas_grid = args.scene_px // 16
     bs = args.batch_size
     image = torch.randn(bs, 3, CANVIT_GLIMPSE_PX, CANVIT_GLIMPSE_PX,
-                         device=device, dtype=_weight_dtype(args))
+                         device=device, dtype=torch.float32)
     vp = Viewpoint.full_scene(batch_size=bs, device=device)
     glimpse = sample_at_viewpoint(spatial=image, viewpoint=vp, glimpse_size_px=CANVIT_GLIMPSE_PX)
     n_glimpse_patches = (CANVIT_GLIMPSE_PX // 16) ** 2

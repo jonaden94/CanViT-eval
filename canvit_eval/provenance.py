@@ -18,7 +18,7 @@ import torch
 def _git(*args: str) -> str:
     try:
         return subprocess.check_output(["git", *args], text=True).strip()
-    except Exception:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return ""
 
 
