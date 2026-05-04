@@ -1,12 +1,7 @@
-"""Correctness tests for the vectorized confusion matrix in ade20k_obj.
+"""Pin _batch_confusion against an integer-exact numpy reference.
 
-The authoritative reference is an integer-exact numpy implementation using
-`np.bincount` — this avoids torch.histc's float32 precision drift at high bin
-indices (which bites at (n_classes, n_classes)=(150, 150)² = 22500 bins).
-`_batch_confusion` must agree bit-for-bit with that reference.
-
-A loop-based torch.histc path is also kept here purely to document the drift
-in `test_histc_has_precision_drift_at_high_bins`.
+scatter_add on the GPU is non-deterministic in general, but the integer-valued
+accumulator here makes the result associative — bit-identical across runs.
 """
 
 import numpy as np
@@ -17,31 +12,13 @@ from canvit_eval.tasks.ade20k_obj.iou import _batch_confusion
 
 try:
     from canvit_specialize.datasets.ade20k import IGNORE_LABEL, NUM_CLASSES
-except ImportError:  # pragma: no cover — dep-free import path for CPU-only CI
+except ImportError:  # pragma: no cover
     IGNORE_LABEL = 255
     NUM_CLASSES = 150
 
 
-# Test-only torch.histc reference — pins the float32 drift documented in
-# `test_histc_has_precision_drift_at_high_bins`. Not used in production.
-def _per_image_iou_histc_ref(
-    pred: torch.Tensor,
-    mask: torch.Tensor,
-    n_classes: int,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    valid = mask != IGNORE_LABEL
-    p, t_gt = pred[valid], mask[valid]
-    cm = torch.histc(
-        (p * n_classes + t_gt).float(),
-        bins=n_classes * n_classes, min=0, max=n_classes * n_classes - 1,
-    ).reshape(n_classes, n_classes)
-    inter = cm.diag()
-    union = cm.sum(1) + cm.sum(0) - inter
-    return inter, union, cm.sum(0)
-
-
 def _numpy_reference(preds: np.ndarray, masks: np.ndarray, n_classes: int):
-    """Integer-exact per-image confusion matrix via np.bincount. Ground truth."""
+    """Per-image confusion via np.bincount."""
     B = preds.shape[0]
     inter = np.zeros((B, n_classes), dtype=np.int64)
     union = np.zeros_like(inter)
@@ -59,135 +36,58 @@ def _numpy_reference(preds: np.ndarray, masks: np.ndarray, n_classes: int):
     return inter, union, gt_area
 
 
-def _torch_histc_reference(preds: torch.Tensor, masks: torch.Tensor, n_classes: int):
-    """Loop-based torch.histc reference (drift-documenting; see module docstring)."""
-    inter, union, gt = [], [], []
-    for i in range(preds.shape[0]):
-        i_i, u_i, g_i = _per_image_iou_histc_ref(preds[i], masks[i], n_classes)
-        inter.append(i_i)
-        union.append(u_i)
-        gt.append(g_i)
-    return torch.stack(inter), torch.stack(union), torch.stack(gt)
-
-
-def _assert_same_as_numpy(t, np_ref, label):
+def _assert_same(t: torch.Tensor, np_ref: np.ndarray, label: str) -> None:
     assert tuple(t.shape) == np_ref.shape, (label, t.shape, np_ref.shape)
-    # _batch_confusion returns float32 for histc-compat; numpy ref is int64.
-    # The values ARE integer-valued so cast is safe.
-    t_int = t.long().cpu().numpy()
-    assert np.array_equal(t_int, np_ref), (
-        label, t_int.sum(), np_ref.sum(), int(np.abs(t_int - np_ref).max())
-    )
+    assert np.array_equal(t.long().cpu().numpy(), np_ref), label
 
 
 @pytest.mark.parametrize(
     "shape, n_classes",
     [
-        ((4, 32, 32), 10),      # small
-        ((4, 128, 128), 50),    # medium
-        ((2, 512, 512), 150),   # production-like (triggers histc precision drift)
+        ((4, 32, 32), 10),
+        ((4, 128, 128), 50),
+        ((2, 512, 512), 150),
     ],
 )
 def test_batch_matches_numpy_exactly(shape, n_classes):
-    """`_batch_confusion` must bit-match integer-exact numpy reference.
-
-    Indexing matches `canvit_specialize.datasets.ade20k.ADE20kDataset.__getitem__`:
-    valid pixels ∈ [0, n_classes-1], invalid = IGNORE_LABEL.
-    """
     torch.manual_seed(0)
-    B, H, W = shape
     preds = torch.randint(0, n_classes, shape, dtype=torch.int64)
     masks = torch.randint(0, n_classes, shape, dtype=torch.int64)
     masks[torch.rand(shape) < 0.10] = IGNORE_LABEL
 
     np_i, np_u, np_g = _numpy_reference(preds.numpy(), masks.numpy(), n_classes)
-    i_new, u_new, g_new = _batch_confusion(preds, masks, n_classes)
-    _assert_same_as_numpy(i_new, np_i, "inter")
-    _assert_same_as_numpy(u_new, np_u, "union")
-    _assert_same_as_numpy(g_new, np_g, "gt_area")
+    i, u, g = _batch_confusion(preds, masks, n_classes)
+    _assert_same(i, np_i, "inter")
+    _assert_same(u, np_u, "union")
+    _assert_same(g, np_g, "gt_area")
 
 
 def test_all_ignore_label():
-    """Edge case: every pixel is IGNORE_LABEL → zero counts everywhere."""
+    """Every pixel ignored → zero counts everywhere."""
     preds = torch.zeros((3, 16, 16), dtype=torch.int64)
     masks = torch.full((3, 16, 16), IGNORE_LABEL, dtype=torch.int64)
-
-    np_i, np_u, np_g = _numpy_reference(preds.numpy(), masks.numpy(), 5)
-    i_new, u_new, g_new = _batch_confusion(preds, masks, 5)
-    _assert_same_as_numpy(i_new, np_i, "inter")
-    _assert_same_as_numpy(u_new, np_u, "union")
-    _assert_same_as_numpy(g_new, np_g, "gt_area")
-    assert i_new.sum() == 0 and u_new.sum() == 0 and g_new.sum() == 0
+    i, u, g = _batch_confusion(preds, masks, 5)
+    assert i.sum() == 0 and u.sum() == 0 and g.sum() == 0
 
 
-def test_perfect_prediction_invariants():
-    """Sanity: pred == mask → inter == gt_area, union == gt_area."""
+def test_perfect_prediction():
+    """pred == mask → inter == union == gt_area."""
     n_classes = 7
     masks = torch.randint(0, n_classes, (4, 64, 64), dtype=torch.int64)
-    preds = masks.clone()
-
-    np_i, np_u, np_g = _numpy_reference(preds.numpy(), masks.numpy(), n_classes)
-    i_new, u_new, g_new = _batch_confusion(preds, masks, n_classes)
-    _assert_same_as_numpy(i_new, np_i, "inter")
-    _assert_same_as_numpy(u_new, np_u, "union")
-    _assert_same_as_numpy(g_new, np_g, "gt_area")
-    assert torch.equal(i_new, g_new)
-    assert torch.equal(u_new, g_new)
+    i, u, g = _batch_confusion(masks.clone(), masks, n_classes)
+    assert torch.equal(i, g)
+    assert torch.equal(u, g)
 
 
-def test_realistic_ade20k_value_distribution():
-    """Mimic real ADE20K loader output, same indexing convention."""
+def test_realistic_ade20k_distribution():
     torch.manual_seed(42)
     shape = (4, 512, 512)
-    n_classes = NUM_CLASSES
-    preds = torch.randint(0, n_classes, shape, dtype=torch.int64)
-    masks = torch.randint(0, n_classes, shape, dtype=torch.int64)
+    preds = torch.randint(0, NUM_CLASSES, shape, dtype=torch.int64)
+    masks = torch.randint(0, NUM_CLASSES, shape, dtype=torch.int64)
     masks[torch.rand(shape) < 0.30] = IGNORE_LABEL
 
-    np_i, np_u, np_g = _numpy_reference(preds.numpy(), masks.numpy(), n_classes)
-    i_new, u_new, g_new = _batch_confusion(preds, masks, n_classes)
-    _assert_same_as_numpy(i_new, np_i, "inter")
-    _assert_same_as_numpy(u_new, np_u, "union")
-    _assert_same_as_numpy(g_new, np_g, "gt_area")
-
-
-def test_histc_has_precision_drift_at_high_bins():
-    """Documents the reason we rewrote _per_image_iou.
-
-    At n_classes=150 (NUM_CLASSES for ADE20K), torch.histc with 22500 bins
-    over [0, 22499] suffers float32 precision drift: some (pred, gt) pairs
-    near the top of the bin range land in the wrong bin. The drift is small
-    (0.5%-ish on random data) but non-zero — and produces different numbers
-    across runs depending on input order since float accumulation order
-    differs. The integer-exact `_batch_confusion` fixes this.
-
-    This test captures the drift rather than asserting on exact equality,
-    so a future torch release that fixes histc won't silently break the
-    test. It just asserts: numpy and scatter_add AGREE; histc drifts.
-    """
-    torch.manual_seed(1)
-    shape = (2, 512, 512)
-    n_classes = 150
-    preds = torch.randint(0, n_classes, shape, dtype=torch.int64)
-    masks = torch.randint(0, n_classes, shape, dtype=torch.int64)
-
-    np_i, np_u, np_g = _numpy_reference(preds.numpy(), masks.numpy(), n_classes)
-    h_i, h_u, h_g = _torch_histc_reference(preds, masks, n_classes)
-    b_i, b_u, b_g = _batch_confusion(preds, masks, n_classes)
-
-    # scatter_add (batch) matches numpy exactly.
-    _assert_same_as_numpy(b_i, np_i, "batch.inter")
-    _assert_same_as_numpy(b_g, np_g, "batch.gt_area")
-
-    # histc differs from numpy (at least at very high bin indices).
-    drift = (h_i.long().numpy() - np_i).astype(np.int64)
-    max_drift = int(np.abs(drift).max())
-    # Relative drift is small: assert the total mismatch is bounded.
-    total_drift = int(np.abs(drift).sum())
-    total_counts = int(np_g.sum())
-    # Document observed drift; <0.1% of all counts is expected.
-    assert total_drift < 0.01 * total_counts, (
-        f"histc drift larger than expected: {total_drift} / {total_counts}"
-    )
-    # Sanity: there IS some drift at n=150 (proves the motivation).
-    assert max_drift > 0, "histc precision drift not observed — test stale?"
+    np_i, np_u, np_g = _numpy_reference(preds.numpy(), masks.numpy(), NUM_CLASSES)
+    i, u, g = _batch_confusion(preds, masks, NUM_CLASSES)
+    _assert_same(i, np_i, "inter")
+    _assert_same(u, np_u, "union")
+    _assert_same(g, np_g, "gt_area")
