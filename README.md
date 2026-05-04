@@ -98,6 +98,20 @@ uv run python bench/pt/analyze.py --pattern 'bench/pt/results/*.jsonl'     # sum
 uv run pytest
 ```
 
+## Citation
+
+```bibtex
+@article{berreby2026canvit,
+  title={CanViT: Toward Active-Vision Foundation Models},
+  author={Berreby, Yoha{\"i}-Eliel and Du, Sabrina and Durand, Audrey and Krishna, B. Suresh},
+  year={2026},
+  eprint={2603.22570},
+  archivePrefix={arXiv},
+  primaryClass={cs.CV},
+  url={https://arxiv.org/abs/2603.22570}
+}
+```
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE) for details.
