@@ -21,7 +21,7 @@ import tyro
 from canvit_pytorch import resolve_canvit_repo
 
 from canvit_eval.config import DINOV3_VITB_REPO, DINOV3_VITS_REPO
-from canvit_eval.policies import IN1K_POLICIES, PolicyName
+from canvit_eval.policies import IN1K_POLICIES, PolicyName, is_power_of_two
 
 log = logging.getLogger(__name__)
 
@@ -41,15 +41,11 @@ def _n_runs_for(policy: PolicyName, n_runs: int) -> int:
     return 1 if policy in DETERMINISTIC else n_runs
 
 
-def _is_power_of_two(n: int) -> bool:
-    return n > 0 and (n & (n - 1)) == 0
-
-
 def _policy_runs_on_grid(policy: PolicyName, canvas_grid: int) -> bool:
     # entropy_coarse_to_fine partitions the canvas into 2x2 / 4x4 tiles; only
     # power-of-two grids align (otherwise _build_tile_masks asserts).
     if policy == "entropy_coarse_to_fine":
-        return _is_power_of_two(canvas_grid)
+        return is_power_of_two(canvas_grid)
     return True
 
 

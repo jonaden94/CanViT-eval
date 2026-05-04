@@ -27,6 +27,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from canvit_eval.config import EpisodeConfig, ade20k_root, require_existing_dir
+from canvit_eval.policies import is_power_of_two
 from canvit_eval.provenance import device_info, provenance
 from canvit_eval.runner import eval_batches
 from canvit_eval.tasks.ade20k_obj.paths import (
@@ -42,7 +43,7 @@ log = logging.getLogger(__name__)
 
 
 def _canvas_policy(canvas_grid: int) -> str:
-    return "entropy_coarse_to_fine" if (canvas_grid & (canvas_grid - 1)) == 0 else "coarse_to_fine"
+    return "entropy_coarse_to_fine" if is_power_of_two(canvas_grid) else "coarse_to_fine"
 
 # Bound the upsampled-logits intermediate at large canvas_grid.
 _UPSAMPLE_CHUNK = 8

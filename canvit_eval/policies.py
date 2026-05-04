@@ -39,6 +39,10 @@ IN1K_POLICIES: list[PolicyName] = [
 GetSpatialFn = Callable[[Tensor], Tensor]
 
 
+def is_power_of_two(n: int) -> bool:
+    return n > 0 and (n & (n - 1)) == 0
+
+
 class StaticPolicy:
     def __init__(self, name: str, viewpoints: list[Viewpoint]) -> None:
         self.name = name
@@ -52,7 +56,7 @@ def _build_tile_masks(
     crop_centers: list[tuple[float, float, float]], canvas_grid: int, device: torch.device,
 ) -> Tensor:
     G = canvas_grid
-    assert G > 0 and (G & (G - 1)) == 0, f"canvas_grid must be a power of 2, got {G}"
+    assert is_power_of_two(G), f"canvas_grid must be a power of 2, got {G}"
     coords = torch.linspace(-1 + 1 / G, 1 - 1 / G, G, device=device)
     crops_t = torch.tensor(crop_centers, device=device)
     cy, cx, s = crops_t[:, 0], crops_t[:, 1], crops_t[:, 2]
