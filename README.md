@@ -1,69 +1,103 @@
 # CanViT-eval
 
-Evaluation and benchmarking for CanViT.
-
-## Tasks
-
-- **`ade20k-seg-canvit`** — ADE20K semantic segmentation via a CanViT episode
-  (T-step rollout, mIoU per timestep).
-- **`ade20k-seg-dinov3`** — same task with a passive DINOv3 backbone (single
-  forward, t=0 only).
-- **`in1k-clf`** — ImageNet-1k top-k classification via
-  `CanViTForImageClassification`, either fused frozen probe or finetuned
-  weights.
-- **`reconstruction`** — cosine similarity between CanViT canvas / CLS and
-  DINOv3 teacher features per timestep.
+Evaluation and benchmarking for [CanViT](https://github.com/m2b3/CanViT-PyTorch),
+the Canvas Vision Transformer.
 
 ## Install
 
-Requires [`uv`](https://docs.astral.sh/uv/).
+Requires [`uv`](https://docs.astral.sh/uv/). From the repo root:
 
-    uv sync
+```bash
+uv sync
+```
 
-## Dataset paths
+## Datasets
 
-Set these env vars (or pass the per-task CLI flags):
+ADE20K (`ADEChallengeData2016/`) and ImageNet-1k (`ILSVRC2012/val/`) are
+referenced depending on the eval. Three ways to point `canvit-eval` at them:
 
-    ADE20K_ROOT     # path to ADEChallengeData2016
-    IMAGENET_VAL    # path to ILSVRC2012/val
+1. Export in your shell:
 
-`.envrc.example` is a template you can copy to `.envrc`.
+   ```bash
+   export ADE20K_ROOT=/path/to/ADEChallengeData2016
+   export IMAGENET_VAL=/path/to/ILSVRC2012/val
+   ```
+
+2. Copy `.envrc.example` to `.envrc`, edit, then `source .envrc` per shell or
+   use [direnv](https://direnv.net/) to auto-load on `cd`.
+
+3. Pass paths per task on the CLI (run `--help` on the subcommand for the
+   exact flag).
 
 ## Single eval
 
-    uv run python -m canvit_eval <subcommand> --help
+```bash
+uv run python -m canvit_eval --help                       # list subcommands
+uv run python -m canvit_eval ade20k-seg-canvit --help     # full flag set
+```
 
-Each subcommand is a tyro Config dataclass; `--help` lists every field with
-its default and type.
+Subcommands:
+
+- `ade20k-seg-canvit`: ADE20K mIoU via a CanViT episode (T-step rollout, mIoU
+  per timestep).
+- `ade20k-seg-dinov3`: ADE20K mIoU with a passive DINOv3 backbone (single
+  forward at a fixed input resolution, mIoU at t=0). Baseline.
+- `in1k-clf`: ImageNet-1k top-k classification, fused-frozen-probe or
+  finetuned.
+- `reconstruction`: cosine similarity between CanViT canvas/CLS and DINOv3
+  teacher features per timestep.
+
+Concrete example (flagship ADE20K config: 1024 px scene, 64×64 canvas,
+21 timesteps):
+
+```bash
+uv run python -m canvit_eval ade20k-seg-canvit \
+    --probe-repo canvit/probe-ade20k-40k-s1024-c64-in21k \
+    --scene-size 1024 --episode.canvas-grid 64 \
+    --output results/ade20k_seg.pt
+```
+
+Saves a `.pt` with per-timestep mIoU and run metadata.
 
 ## Batch eval
 
-Build and run the eval matrix sequentially on a single GPU:
+```bash
+uv run python -m canvit_eval.batch --help
+uv run python -m canvit_eval.batch --n-runs 5
+```
 
-    uv run python -m canvit_eval.batch --help
-
-`--skip-existing` resumes an interrupted batch (matched on structural identity,
-not filename).
+Sweeps the four subcommands above across a predefined set of
+(scene size, canvas grid, policy) configurations, one after another.
+`--n-runs` sets the repetition count for stochastic policies; deterministic
+ones always run once. `--include-extra-grids` adds canvas-grid sweeps beyond
+the baseline set. `--skip-existing` skips configs whose output files already
+exist.
 
 ## ADE20K mask-size pipeline
 
-Per-(image, class, timestep) IoU. Three stages — DINOv3 feature export, DINOv3
-IoU, CanViT IoU. Each stage skips if its output already exists:
+Three stages: DINOv3 feature export, DINOv3 IoU, CanViT IoU. Each stage skips
+if its output already exists.
 
-    uv run python -m canvit_eval.tasks.ade20k_obj
-
-Stages can also be invoked individually; see `--help` on each module.
+```bash
+uv run python -m canvit_eval.tasks.ade20k_obj                              # all stages
+uv run python -m canvit_eval.tasks.ade20k_obj.export_dv3_features --help   # stage 1 alone
+uv run python -m canvit_eval.tasks.ade20k_obj.iou --help                   # stages 2 & 3
+```
 
 ## Latency bench
 
-Per-forward-pass latency at `batch_size=1` with explicit device sync. `matrix.py`
-generates one subprocess per cell (pre-flight gated on GPU/CPU idle) and writes
-one JSONL per cell; `analyze.py` reports distributional stats over the JSONLs:
-
-    uv run python bench/pt/matrix.py --help
-    uv run python bench/pt/run.py --help
-    uv run python bench/pt/analyze.py --pattern 'bench/pt/results/*.jsonl'
+```bash
+uv run python bench/pt/matrix.py --help                                    # bench across many configs
+uv run python bench/pt/run.py --help                                       # bench one config
+uv run python bench/pt/analyze.py --pattern 'bench/pt/results/*.jsonl'     # summarise the JSONLs
+```
 
 ## Tests
 
-    uv run pytest
+```bash
+uv run pytest
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
