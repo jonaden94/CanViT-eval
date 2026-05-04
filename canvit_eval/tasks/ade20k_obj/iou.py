@@ -189,9 +189,9 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
         feats_all: torch.Tensor = data["feats"]
         masks_all: torch.Tensor = data["masks"]
         grid: int = data["grid"]
-        mask_res_px: int = data.get("scene_size_px", data.get("scene_size"))
+        mask_res_px: int = data["scene_size_px"]
         n_images = feats_all.shape[0]
-        teacher_repo = data.get("teacher_repo", "unknown")
+        teacher_repo: str = data["teacher_repo"]
         teacher_repos_seen.add(teacher_repo)
 
         assert feats_all.ndim == 3 and feats_all.shape[1] == grid * grid, feats_all.shape
@@ -229,7 +229,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
         df = _to_long_df(
             inter_all, union_all, gt_area_all, {"resolution": res_px},
             mask_resolution_px=mask_res_px,
-            resize_mode=data.get("resize_mode", cfg.resize_mode),
+            resize_mode=data["resize_mode"],
         )
         assert len(df) > 0, f"empty dataframe at {res_px}px"
         frames.append(df)

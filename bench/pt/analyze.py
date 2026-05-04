@@ -70,7 +70,7 @@ def load_jsonl(path: Path) -> Run:
         t = row.get("type")
         if t == "iter":
             iter_ms.append(row["ms"])
-            iter_wall.append(row.get("wall_s", np.nan))
+            iter_wall.append(row["wall_s"])
         elif t == "warmup":
             warm_ms.append(row["ms"])
         elif t == "peak_mem":
