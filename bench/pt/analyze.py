@@ -1,10 +1,8 @@
 """Distributional stats for bench/pt/run.py JSONL output.
 
-Groups by (model, device, scene, cg, dtype, compiled, threads, batch).
-Reports median/p5/p95/p99/std with bootstrap CIs, flags pairwise
-thread-count regressions and per-run time drift.
-
-    uv run python bench/pt/analyze.py --glob 'bench/pt/results/*.jsonl'
+Groups by (model, device, scene, cg, dtype, compiled, threads, batch); reports
+median/p5/p95/p99/std with bootstrap CIs; flags pairwise thread-count
+regressions and per-run time drift.
 """
 
 import glob
@@ -21,18 +19,13 @@ import tyro
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
 log = logging.getLogger("analyze")
 
-# ── Data loading ─────────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class Run:
-    """A single bench invocation's data, loaded from one JSONL file."""
-
     path: Path
     meta: dict
-    iter_ms: np.ndarray       # measurement iters only (type=iter)
-    iter_wall_s: np.ndarray   # wall-clock at each measurement iter
-    warmup_ms: np.ndarray     # warmup iters (type=warmup)
+    iter_ms: np.ndarray
+    iter_wall_s: np.ndarray
+    warmup_ms: np.ndarray
     peak_mem_mb: float | None
 
     @property
@@ -62,7 +55,6 @@ class Run:
 
 
 def load_jsonl(path: Path) -> Run:
-    """Load a single bench JSONL file. Crashes loud on malformed input."""
     lines = path.read_text().strip().split("\n")
     assert lines, f"{path.name}: empty file"
     meta = json.loads(lines[0])
@@ -78,7 +70,6 @@ def load_jsonl(path: Path) -> Run:
         t = row.get("type")
         if t == "iter":
             iter_ms.append(row["ms"])
-            # wall_s may be absent in older JSONL files.
             iter_wall.append(row.get("wall_s", np.nan))
         elif t == "warmup":
             warm_ms.append(row["ms"])
@@ -95,9 +86,6 @@ def load_jsonl(path: Path) -> Run:
         warmup_ms=np.array(warm_ms),
         peak_mem_mb=peak_mb,
     )
-
-
-# ── Statistics ───────────────────────────────────────────────────────────
 
 
 def bootstrap_ci(
@@ -176,9 +164,6 @@ def group_runs(runs: Iterable[Run]) -> dict[tuple, GroupStats]:
     return groups
 
 
-# ── Time-local contention detector ───────────────────────────────────────
-
-
 def time_drift_stats(run: Run) -> dict:
     """Spearman rho of iter latency vs iter index. Positive = slows over time."""
     n = int(run.iter_ms.size)
@@ -189,15 +174,8 @@ def time_drift_stats(run: Run) -> dict:
     return {"n": n, "spearman_rho": rho}
 
 
-# ── Pairwise CI overlap ──────────────────────────────────────────────────
-
-
 def ci_disjoint(ci_a: tuple[float, float], ci_b: tuple[float, float]) -> bool:
-    """True iff the two CIs do not overlap."""
     return ci_a[1] < ci_b[0] or ci_b[1] < ci_a[0]
-
-
-# ── Reporting ────────────────────────────────────────────────────────────
 
 
 def print_summary_table(groups: dict[tuple, GroupStats]) -> None:
@@ -223,10 +201,9 @@ def print_summary_table(groups: dict[tuple, GroupStats]) -> None:
 
 def print_pairwise(groups: dict[tuple, GroupStats]) -> None:
     """For groups that differ only in num_threads_actual, check for real regressions."""
-    # Bucket by all-except-thread-count
+    # Bucket by all-except-thread-count (index 6 in the key tuple).
     thread_groups: dict[tuple, list[GroupStats]] = {}
     for g in groups.values():
-        # Thread count is index 6 in the key tuple; factor it out.
         sig = g.key[:6] + g.key[7:]
         thread_groups.setdefault(sig, []).append(g)
 
@@ -241,7 +218,7 @@ def print_pairwise(groups: dict[tuple, GroupStats]) -> None:
     for sig, gs in sorted(thread_groups.items()):
         if len(gs) < 2:
             continue
-        gs_sorted = sorted(gs, key=lambda g: g.key[6])  # ascending thread count
+        gs_sorted = sorted(gs, key=lambda g: g.key[6])
         for a, b in zip(gs_sorted, gs_sorted[1:]):
             sa, sb = a.summary(), b.summary()
             overlap = not ci_disjoint(sa["median_ci"], sb["median_ci"])
@@ -258,7 +235,7 @@ def print_pairwise(groups: dict[tuple, GroupStats]) -> None:
             if not agrees:
                 verdict += " [med/min disagree]"
 
-            label = a.label.rsplit("/threads=", 1)[0]  # strip the thread-count tag
+            label = a.label.rsplit("/threads=", 1)[0]
             log.info(
                 f"{label:<55s}  {a.key[6]:>6d}→{b.key[6]:<7d}  "
                 f"{sa['median']:>8.2f}  {sb['median']:>8.2f}  "
@@ -281,9 +258,6 @@ def print_drift_flags(runs: list[Run]) -> None:
         if abs(rho) > 0.3:
             flag = "DRIFT (slowing)" if rho > 0 else "DRIFT (speeding)"
         log.info(f"{r.path.name:<80s}  {s['n']:>5d}  {rho:>+8.3f}  {flag:<25s}")
-
-
-# ── Main ─────────────────────────────────────────────────────────────────
 
 
 @dataclass

@@ -1,14 +1,5 @@
-"""End-to-end ADE20K mask-analysis pipeline.
-
-Invoked via `python -m canvit_eval.tasks.ade20k_obj`.
-
-Three stages: DINOv3 feature export → DINOv3 per-(image, class) IoU →
-CanViT per-(image, class, timestep) IoU. Each stage skips if its output
-exists (size + mtime logged); delete the artifact to force a rerun.
-
-Stages can also be invoked standalone (see each module's `--help`).
-Edit DV3_RESOLUTIONS_PX and CANVAS_RESOLUTIONS below to run different subsets.
-"""
+"""ADE20K mask-analysis pipeline: DINOv3 feature export → DINOv3 IoU → CanViT IoU.
+Each stage skips if its output exists; delete the artifact to force a rerun."""
 
 import datetime as dt
 import logging
@@ -36,10 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s", date
 log = logging.getLogger(__name__)
 
 
-# DINOv3 resolutions for the mask-size figure: only 128 px (output grid 8 = 128/16).
 DV3_RESOLUTIONS_PX: list[int] = [128]
-
-# Canvas grids consumed by the figure's IoU + Δ panels.
 CANVAS_RESOLUTIONS: list[int] = [8, 16, 32, 64]
 
 

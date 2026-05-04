@@ -1,10 +1,8 @@
 """Reproducibility metadata for eval sidecars.
 
-Explicitly OMITS identity-revealing fields (hostname, cwd, absolute paths in
-cmdline) so sidecars are shippable alongside eval artifacts in anonymized
-double-blind submission bundles. Keep it that way: add config / hardware /
-git metadata freely; never add anything that names a user, host, or path
-outside the repo tree.
+Omits identity-revealing fields (hostname, cwd, absolute paths in cmdline) so
+sidecars are shippable in anonymized submission bundles. Don't add anything
+that names a user, host, or path outside the repo tree.
 """
 
 import platform
@@ -37,18 +35,7 @@ def git_dirty() -> bool:
 
 
 def _safe_cmdline() -> str:
-    """argv rendered repo-root-relative for argv[0], verbatim for the rest.
-
-    argv[0] is normally an absolute path into the repo (e.g.
-    `/path/to/repo/canvit_eval/tasks/ade20k_obj/__main__.py`).
-    Relativising it to the repo root produces a stable, anonymizable string
-    (`canvit_eval/tasks/ade20k_obj/__main__.py`). If argv[0] isn't under a git
-    repo (unusual), we fall back to just the basename.
-
-    argv[1:] (task flags, values) is preserved verbatim. If a caller passes
-    an absolute path as a flag value, that's a separate anonymization concern
-    for the task layer, not this helper.
-    """
+    """argv[0] rendered repo-root-relative (or basename if outside any repo); argv[1:] verbatim."""
     if not sys.argv:
         return ""
     head = Path(sys.argv[0])
@@ -64,12 +51,6 @@ def _safe_cmdline() -> str:
 
 
 def provenance() -> dict[str, Any]:
-    """Env-level reproducibility dict. Task-specific fields (input paths, hyper-
-    params, GPU name) are added alongside by each task's sidecar writer.
-
-    Deliberately excludes `hostname`, `cwd`, and the absolute-path form of
-    `cmdline` — see module docstring.
-    """
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git_commit": git_commit(),
@@ -82,7 +63,6 @@ def provenance() -> dict[str, Any]:
 
 
 def device_info(device: torch.device | None) -> dict[str, Any]:
-    """`device` + (on CUDA) `cuda_device_name`. Callers splat into their sidecar."""
     if device is None:
         return {}
     info: dict[str, Any] = {"device": str(device)}

@@ -1,21 +1,8 @@
-"""Bench matrix runner. Replaces run_matrix.sh + threadscan.sh.
+"""Driver for bench/pt/run.py.
 
-Generates one job per (model, device, scene, dtype, threads) cell, optionally
-repeats across passes with shuffled order, pre-flight-gates on idle, then
-subprocesses `run.py` per cell. Follows the `canvit_eval.batch` pattern.
-
-Examples:
-
-    # Full paper matrix, CPU fp32 + CUDA fp32 + CUDA bf16 (compiled).
-    uv run python bench/pt/matrix.py
-
-    # Just a CPU thread-count scan at one scene, interleaved across passes.
-    uv run python bench/pt/matrix.py \\
-        --models canvit --devices cpu --scenes 512 --passes 3 \\
-        --cuda-dtypes '' --cpu-threads 1 4 8 16 32
-
-    # Preview:
-    uv run python bench/pt/matrix.py --dry-run
+Generates one subprocess per (model, device, scene, dtype, threads) cell,
+optionally repeated across passes with shuffled order, pre-flight gated on
+GPU/CPU idle. Run `--help` for flags.
 """
 
 import logging
@@ -40,9 +27,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 RUN_PY = SCRIPT_DIR / "run.py"
 
 
-# ── Physical-core detection ──────────────────────────────────────────────
-
-
 def physical_cores() -> int:
     """Linux: distinct core_ids under /sys topology. Fallback: os.cpu_count()."""
     ids: set[str] = set()
@@ -56,9 +40,6 @@ def physical_cores() -> int:
 
 def logical_cores() -> int:
     return os.cpu_count() or 1
-
-
-# ── Pre-flight idle check ────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -85,19 +66,13 @@ def preflight(t: IdleThresholds = IdleThresholds()) -> None:
     except FileNotFoundError:
         log.info("GPU: nvidia-smi not found (skipping)")
 
-    # CPU: use 1-min load average from /proc/loadavg. That's the kernel's
-    # own "are cores saturated" signal. Don't use `sum(ps pcpu)` — pcpu for
-    # long-lived daemons is lifetime-average so it sums to 100%+ on a box
-    # with 91 days of uptime and hundreds of processes even when the box
-    # is effectively idle.
+    # 1-min load average; not summed pcpu (latter is lifetime-average and
+    # over-reports idle boxes with long-lived daemons).
     with open("/proc/loadavg") as f:
         load1 = float(f.read().split()[0])
     log.info(f"CPU load (1 min): {load1:.2f}")
     if load1 > t.max_load_1min:
         raise RuntimeError(f"CPU load average {load1} > {t.max_load_1min}")
-
-
-# ── Job model ────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -106,7 +81,7 @@ class BenchJob:
     device: Device
     scene_px: int
     dtype: Dtype
-    num_threads: int      # only meaningful for CPU; 0 = torch default
+    num_threads: int  # CPU only; 0 = torch default
     compiled: bool
     pass_idx: int
 
@@ -133,9 +108,6 @@ class BenchJob:
         return a
 
 
-# ── Matrix builder ───────────────────────────────────────────────────────
-
-
 def build_matrix(
     *,
     models: list[ModelName],
@@ -150,13 +122,10 @@ def build_matrix(
     """Generate all (pass × cell) jobs, shuffled per pass."""
     jobs: list[BenchJob] = []
 
-    # CPU cells: (model, scene, threads), dtype=fp32, eager. bf16 has no CPU
-    # speedup on the bench host (Ryzen 7950X, no native bf16); compile would
-    # only mask measurement noise without changing kernels.
+    # CPU: fp32 eager only. CUDA: dtypes from `cuda_dtypes`, compiled per `cuda_compiled`.
     cpu_cells: list[tuple[ModelName, int, int]] = [
         (m, s, t) for m in models for s in cpu_scenes for t in cpu_threads
     ]
-    # CUDA cells: (model, scene, dtype), compiled toggled by `cuda_compiled`.
     cuda_cells: list[tuple[ModelName, int, Dtype]] = [
         (m, s, d) for m in models for s in cuda_scenes for d in cuda_dtypes
     ]
@@ -174,9 +143,6 @@ def build_matrix(
     return jobs
 
 
-# ── CLI ──────────────────────────────────────────────────────────────────
-
-
 Profile = Literal["fast", "full"]
 
 PROFILES: dict[Profile, dict] = {
@@ -188,15 +154,12 @@ PROFILES: dict[Profile, dict] = {
 @dataclass
 class Args:
     profile: Profile = "fast"
-    """fast: quick paper-figure bench (~5 min full matrix).
-    full: distributional bench (~80 min, 3 passes for CI analysis).
-    Individual flags below override the profile's values when set."""
+    """`fast` for a quick run; `full` for distributional CIs across multiple
+    passes. Individual flags override the profile."""
     models: list[ModelName] = field(default_factory=lambda: ["canvit", "dinov3-vitb16", "dinov3-vits16"])
-    """Default includes DINOv3 ViT-S — shows scene-size cost hits
-    smaller backbones too, not just ViT-B."""
     cpu_scenes: list[int] = field(default_factory=lambda: [128, 256, 512, 1024])
     cpu_threads: list[int] = field(default_factory=list)
-    """CPU thread counts. Empty = auto {1, physical_cores}."""
+    """Empty = auto {1, physical_cores}."""
     cuda_scenes: list[int] = field(default_factory=lambda: [128, 256, 512, 1024, 2048])
     cuda_dtypes: list[Dtype] = field(default_factory=lambda: ["fp32", "amp-bf16"])
     cuda_compiled: bool = True
@@ -229,10 +192,6 @@ def main(args: Args) -> None:
 
     if not args.cpu_threads:
         phys = physical_cores()
-        # Only the two configs that matter: single-threaded baseline and
-        # physical-core count. Intermediate thread counts and SMT-extending
-        # counts (beyond physical cores) don't represent deployment choices
-        # anyone would pick — they only interpolate between 1 and phys.
         args.cpu_threads = sorted({1, phys})
         log.info(f"Auto cpu_threads = {args.cpu_threads} (physical={phys})")
 
@@ -251,19 +210,13 @@ def main(args: Args) -> None:
 
     if not args.skip_preflight:
         thresholds = IdleThresholds()
-        # If no CUDA jobs, a busy GPU is irrelevant for measurement validity.
         has_cuda = any(j.device == "cuda" for j in jobs)
         if not has_cuda or args.skip_gpu_for_cpu_jobs:
-            # Bypass GPU checks; still check CPU.
             thresholds = IdleThresholds(max_gpu_util_pct=100, max_gpu_procs=10_000)
         preflight(thresholds)
 
-    # Move the Inductor cache from /tmp/torchinductor_$USER (default) to a
-    # user-persistent path. The default location persists across processes,
-    # but /tmp is subject to systemd-tmpfiles cleanup by file age, so
-    # long-gap re-runs miss the cache and pay full cold compile (~15s CUDA).
-    # ~/.cache is user-scoped and not cleaned. Local timing checks showed a
-    # large same-shape speedup after the first cold compile.
+    # User-scoped Inductor cache: survives /tmp cleanup so long-gap re-runs
+    # don't pay the full cold compile.
     cache_dir = Path.home() / ".cache" / "torch" / "inductor"
     cache_dir.mkdir(parents=True, exist_ok=True)
     child_env = {**os.environ, "TORCHINDUCTOR_CACHE_DIR": str(cache_dir)}

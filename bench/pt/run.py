@@ -1,26 +1,11 @@
-"""Real-time latency benchmark: CanViT vs DINOv3.
+"""Per-forward-pass latency at batch_size=1 with explicit device sync each iteration.
 
-Measures per-forward-pass LATENCY (batch_size=1, full GPU sync before/after
-each iteration). This is the relevant metric for real-time inference
-(webcam, robotics, etc.) — NOT throughput.
+scene_px controls workload for both models:
+  - DINOv3: input is scene_px square; (scene_px // 16)² patches.
+  - CanViT: glimpse fixed at 128 px; canvas_grid = scene_px // 16
+    (canvas spatial-token count matches DINOv3's patch count at the same scene).
 
-Key concept: "scene resolution" determines workload for BOTH models.
-  - DINOv3: input_px = scene_px → (scene_px/16)² patches.
-  - CanViT: glimpse always 128px (64 patches), canvas_grid = scene_px/16.
-            Canvas spatial token count matches DINOv3's patch count.
-
-Methodology:
-  1. Warmup phase: N iterations to trigger torch.compile and prime caches.
-  2. Peak memory measurement (after warmup).
-  3. Measurement phase: timed iterations with per-iter GPU sync.
-     Budget and iter count are for measurement only (exclude warmup).
-
-Results streamed to JSONL (survives OOM/crashes).
-One invocation = one (model, scene_px, dtype, compiled) config.
-
-Usage:
-    uv run python bench/pt/run.py --model canvit --device cuda --scene-px 512 --compiled --dtype amp-bf16
-    uv run python bench/pt/run.py --model dinov3-vitb16 --device cpu --scene-px 512 --dtype fp32 --num-threads 1
+Streams per-iteration timings to JSONL.
 """
 
 import json
@@ -75,20 +60,18 @@ class Args:
     max_iters: int = 500
     """Stop after this many iterations even if time budget not exhausted."""
     min_iters: int = 2
-    """Run at least this many measurement iterations, even if the time budget
-    is already exhausted. Guarantees a baseline sample count for slow cells
-    (e.g. DINOv3 CPU 1024px at ~13 s/iter would do 0 iters on a 10 s budget
-    without this floor)."""
+    """Floor on measurement iterations — runs at least this many even if the
+    time budget is already exhausted. Guarantees a sample on very slow cells."""
     num_threads: int = 0
     """Number of CPU threads (0 = PyTorch default). Only relevant for --device cpu."""
     warmup_iters: int = 1
-    """Warmup iterations before measurement. Default 1 because iter 0
-    triggers torch.compile on CUDA and primes caches on CPU — additional
-    warmup iters add no information. Raise for noisy environments."""
+    """Warmup iterations before measurement. Iter 0 triggers torch.compile and
+    primes caches; additional warmups add no information unless the environment
+    is noisy."""
 
 
 def _weight_dtype(args: Args) -> torch.dtype:
-    # Always fp32: AMP autocast handles bf16 compute, weights stay fp32
+    # Weights stay fp32; bf16 is applied via autocast at compute time.
     return torch.float32
 
 
@@ -145,20 +128,13 @@ def _measure_streaming(
     warmup_iters: int,
     device: torch.device,
 ) -> None:
-    """Warmup, then measure fn repeatedly, streaming to JSONL.
-
-    Phase 1: warmup iterations (not timed against budget).
-             Iter 0 triggers torch.compile.
-    Phase 2: peak-memory counter reset, then timed iterations until
-             time_budget_s or max_iters (whichever first).
-             Peak memory recorded once at the end of the measurement phase.
-    """
+    """Warmup (not budgeted), reset peak-mem, then time `fn` until budget exhausted.
+    Streams per-iter rows to JSONL; emits a peak_mem row at the end."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         f.write(json.dumps({"type": "meta", **meta}) + "\n")
         f.flush()
 
-        # -- Warmup phase (not counted toward budget) --
         for w in range(warmup_iters):
             _sync(device)
             t0 = time.perf_counter()
@@ -170,7 +146,6 @@ def _measure_streaming(
             f.write(json.dumps(row) + "\n")
             f.flush()
 
-        # -- Measurement phase: reset peak-mem counter, then loop --
         _reset_peak_mem(device)
         i = 0
         wall_start = time.perf_counter()
@@ -193,7 +168,6 @@ def _measure_streaming(
             if i >= min_iters and (wall_s >= time_budget_s or i >= max_iters):
                 break
 
-        # -- Peak memory at the end of the measurement phase --
         peak_mb = _read_peak_mb(device)
         if peak_mb is not None:
             log.info("  peak memory: %.1f MB", peak_mb)
@@ -214,16 +188,10 @@ def _build_dinov3(args: Args, device: torch.device) -> Callable[[], None]:
     if args.compiled:
         log.info("  torch.compile...")
         t0 = time.perf_counter()
-        # ASYMMETRIC ON PURPOSE — do not "uniformize" with `teacher.compile()` or
-        # `torch.compile(teacher)`. DINOv3Teacher's bench entry point is
-        # forward_norm_features() (not forward()); both nn.Module.compile() and
-        # torch.compile(module) only intercept .forward(), so both naive
-        # uniformizations silently no-op: warmup stays near-instant, outputs are
-        # bit-identical to no-compile, and the bench would silently lose the
-        # speedup with no error or warning. The asymmetric form below compiles
-        # the inner HF model directly, which is where the heavy work lives.
-        # Reproduce by running this script with --compiled vs without; the
-        # difference in warmup time + per-iter latency tells the story.
+        # Compile the inner HF model directly: the bench entry point here is
+        # forward_norm_features(), and both teacher.compile() and
+        # torch.compile(teacher) only intercept .forward() — they would silently
+        # no-op without any warning.
         teacher.model = torch.compile(teacher.model)  # type: ignore[assignment]
         log.info("  registered in %.1fs", time.perf_counter() - t0)
 
@@ -275,9 +243,6 @@ def _device_info(device: torch.device) -> tuple[str, float | None]:
         return torch.cuda.get_device_name(0), torch.cuda.get_device_properties(0).total_memory / 1e9
     if device.type == "mps":
         return "Apple Silicon (MPS)", None
-    # XXX: Linux-only. On macOS, returns "CPU" — this is why hw_bench_table.typ
-    # hardcodes the CPU model name. Fix: also try `sysctl -n machdep.cpu.brand_string`
-    # on macOS, or `platform.processor()` as a portable fallback.
     try:
         with open("/proc/cpuinfo") as f:
             for line in f:

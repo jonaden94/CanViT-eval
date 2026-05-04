@@ -1,38 +1,11 @@
-"""Batch evaluation: assemble and run the eval matrix for the paper.
+"""Sequential single-GPU batch eval.
 
-Results go to task-specific subdirs under --out-dir (default: results/):
-    ade20k_seg/
-    in1k_clf_{frozen,finetuned}/
-    recon/
+Outputs land in task-specific subdirs (ade20k_seg/, in1k_clf_{frozen,finetuned}/,
+recon/). Filenames carry a UTC timestamp; --skip-existing matches on the
+structural identity (task, model, policy, scene, grid, run_idx), so reruns
+resume cleanly across invocations.
 
-Filenames include a UTC timestamp for provenance; skip-existing matches on the
-structural identity (task, model, policy, scene, grid, run_idx), not on
-filename equality — so reruns can resume cleanly without caring about
-when the prior run happened.
-
-Usage:
-
-    # Default eval matrix, 5 runs per stochastic policy, single GPU, sequential.
-    # "Runs" = independent re-invocations; no explicit seeding is done, so
-    # stochastic policies (random, full_then_random) sample from the default
-    # RNG state. Deterministic policies trimmed to n=1 via DETERMINISTIC.
-    uv run python -m canvit_eval.batch --n-runs 5
-
-    # Resume: skip any job whose structural output already exists on disk:
-    uv run python -m canvit_eval.batch --n-runs 5 --skip-existing
-
-    # Memory-constrained GPU: clamp every generated job batch size.
-    uv run python -m canvit_eval.batch --max-batch-size 8
-
-    # Filter by task / grid / policy:
-    uv run python -m canvit_eval.batch --tasks ade20k-seg --grids 32
-    uv run python -m canvit_eval.batch --policies coarse_to_fine entropy_coarse_to_fine
-
-    # Extend the ADE20K matrix with freshly trained canvas grids (c9/10/12/24 @ s512):
-    uv run python -m canvit_eval.batch --include-extra-grids
-
-    # Preview without running:
-    uv run python -m canvit_eval.batch --dry-run
+Run `--help` for flags.
 """
 
 import logging
@@ -56,16 +29,10 @@ def _utc_timestamp() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
 
 
-# ── ADE20K segmentation matrix ─────────────────────────────────────────
-
 ALL_POLICIES: list[PolicyName] = list(get_args(PolicyName))
 
-# Policies whose output is bit-identical across runs, given a fixed probe + fixed
-# dataloader order. The batch builder trims n_runs → 1 for these to avoid waste.
-#
-#   repeated_full_scene     — static viewpoint sequence, no RNG.
-#   entropy_coarse_to_fine  — argmax over entropy scores in EntropyGuidedC2F.step
-#                             (policies.py); no RNG introduced anywhere in the episode.
+# No RNG at any point in the episode: bit-identical across runs given a fixed
+# probe and dataloader order. Trimmed to n_runs=1.
 DETERMINISTIC: frozenset[PolicyName] = frozenset({"repeated_full_scene", "entropy_coarse_to_fine"})
 
 
@@ -78,95 +45,62 @@ def _is_power_of_two(n: int) -> bool:
 
 
 def _policy_runs_on_grid(policy: PolicyName, canvas_grid: int) -> bool:
-    """Some policies have structural canvas-grid constraints.
-
-    entropy_coarse_to_fine partitions the canvas into C2F tiles (2x2, 4x4) —
-    those partitions only align cleanly with power-of-2 canvas grids. On
-    c9/c10/c12/c24 `_build_tile_masks` in policies.py asserts and the
-    job crashes.
-    """
+    # entropy_coarse_to_fine partitions the canvas into 2x2 / 4x4 tiles; only
+    # power-of-two grids align (otherwise _build_tile_masks asserts).
     if policy == "entropy_coarse_to_fine":
         return _is_power_of_two(canvas_grid)
     return True
 
 
-# (scene_size, canvas_grid, batch_size) for CanViT policy-curve evals — the
-# paper matrix. See EXTRA_ADE20K_RESOLUTIONS for the opt-in extension. The
-# (512, 64) entry lets s=512/c=64 be compared apples-to-apples against
-# s=1024/c=64 in the scene-size analysis.
+# (scene_size, canvas_grid, batch_size) for CanViT multi-timestep evals.
 ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 32, 32),
     (512, 64, 8),
     (1024, 64, 8),
 ]
 
-# (scene_size, canvas_grid) for CanViT single-glimpse (t=0) probes — the passive-comparison table.
-# batch_size lookup is shared with ADE20K_RESOLUTIONS via _BATCH_SIZE_BY_SCENE.
+# (scene_size, canvas_grid) for CanViT single-glimpse (t=0) probes.
 CANVAS_GRIDS: list[tuple[int, int]] = [
     (512, 8), (512, 16), (512, 32), (1024, 64),
 ]
 
-# Opt-in via --include-extra-grids. Two disjoint lists by design:
-#   EXTRA_CANVAS_GRIDS        — appended to CANVAS_GRIDS for t=0 single-glimpse probes.
-#   EXTRA_ADE20K_RESOLUTIONS  — appended to ADE20K_RESOLUTIONS for multi-step policy curves.
-#
-# c8 and c16 are ONLY in EXTRA_ADE20K_RESOLUTIONS (not EXTRA_CANVAS_GRIDS) because their
-# t=0 data is already in CANVAS_GRIDS. Listing them in both would produce duplicate
-# `canvit_s512_c{8,16}_{ts}.pt` job specs at matrix-build time.
-#
-# Grid set motivation: c9/10/12/24 mirror the DINOv3 baseline input resolutions
-# {144, 160, 192, 384} px (grid = px/16), enabling matched-token-count comparison.
-# c8 and c16 round out the sweep for the canvas-grid-impact figure.
+# --include-extra-grids: append to CANVAS_GRIDS / ADE20K_RESOLUTIONS. Lists are
+# disjoint — c8 and c16 already have t=0 data in CANVAS_GRIDS so they don't
+# reappear in EXTRA_CANVAS_GRIDS (would produce duplicate output paths).
 EXTRA_CANVAS_GRIDS: list[tuple[int, int]] = [
     (512, 9), (512, 10), (512, 12), (512, 24),
 ]
 EXTRA_ADE20K_RESOLUTIONS: list[tuple[int, int, int]] = [
-    (512, 8, 32),   # multi-step only; t=0 already in CANVAS_GRIDS
+    (512, 8, 32),
     (512, 9, 32),
     (512, 10, 32),
     (512, 12, 32),
-    (512, 16, 32),  # multi-step only; t=0 already in CANVAS_GRIDS
+    (512, 16, 32),
     (512, 24, 32),
 ]
 
-# IN1k classification sweep — (scene_size, canvas_grid, batch_size).
-#
-# IN1k probes are canvas-grid-agnostic: the classification head operates on recurrent_cls[:, 0]
-# (a single CLS token of dim D), not on spatial tiles. Same fused head weights work at any
-# grid. Fusion always uses the c=32 standardizer (see FUSION_CANVAS_GRID in tasks/in1k_clf.py);
-# only the runtime canvas_grid varies across this sweep.
-#
-# EXTRA_IN1K_RESOLUTIONS: scene size FIXED at 512 (same as baseline), only canvas grid varies.
-# This isolates the canvas grid variable. Finetuned mode is baseline-only — the model was
-# finetuned at s=512/c=32; varying grid for finetuned weights is a separate question.
+# Fusion uses the c=32 CLS standardizer (the only one initialised by pretraining);
+# runtime canvas_grid can still vary. See FUSION_CANVAS_GRID in tasks/in1k_clf.py.
 IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
     (512, 32, 64),
 ]
 EXTRA_IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
-    (512, 8, 64),      # 8×8 canvas patches
-    (512, 16, 64),     # 16×16 canvas patches
-    (512, 64, 8),      # 64×64 canvas patches — conservative batch size
+    (512, 8, 64),
+    (512, 16, 64),
+    (512, 64, 8),
 ]
 
-# DINOv3 passive baselines: 2 variants × 7 resolutions = 14 evals.
-# 768/1024 px DINOv3 probes would be required to match CanViT c48@s512 and c64@s1024 data
-# points; not currently trained (would need a different training machine).
 DINOV3_VARIANTS: dict[str, str] = {
     "dv3b": "facebook/dinov3-vitb16-pretrain-lvd1689m",
     "dv3s": "facebook/dinov3-vits16-pretrain-lvd1689m",
 }
 DINOV3_RESOLUTIONS: list[int] = [128, 144, 160, 192, 256, 384, 512]
 
-# Single source of truth: derive {scene → batch_size} from the combined matrix.
-# Hard-crashes on unknown scene (no silent fallback — missing entry = code bug).
+# {scene_size: batch_size} derived from the matrix; raises KeyError on unknown scene.
 _BATCH_SIZE_BY_SCENE: dict[int, int] = {
     scene: bs for scene, _, bs in ADE20K_RESOLUTIONS + EXTRA_ADE20K_RESOLUTIONS
 }
 
-
-# ── Ablation reconstruction matrix ─────────────────────────────────────
-# Single source of truth for ablation HF repo IDs; the paper repo imports this
-# via `from canvit_eval.batch import ABLATION_REPOS` for FLOP/param analysis.
 
 ABLATION_REPOS: dict[str, str] = {
     "baseline":      resolve_canvit_repo("canvitb16-abl-baseline-2026-03-02"),
@@ -188,33 +122,21 @@ def _probe_repo(scene: int, grid: int) -> str:
     return resolve_canvit_repo(f"probe-ade20k-40k-s{scene}-c{grid}-in21k")
 
 
-# ── Job model ──────────────────────────────────────────────────────────
-
 TaskName = Literal["ade20k-seg", "in1k-clf", "recon"]
 ALL_TASKS: list[TaskName] = list(get_args(TaskName))
 
 
-# Matches the `YYYYMMDDThhmmssZ` UTC timestamp baked into every output filename
-# by `_utc_timestamp`. Used to strip the timestamp for structural globs in
-# `already_done` (so re-invocations match prior runs regardless of when they ran).
+# Matches the UTC timestamp `_utc_timestamp` writes into every output filename.
 _TS_RE = re.compile(r"\d{8}T\d{6}Z")
 
 
 @dataclass(frozen=True)
 class EvalJob:
-    """One evaluation invocation.
-
-    Structural fields (task/model/policy/scene_size/canvas_grid/input_px/run_idx)
-    drive filter_jobs(), skip_existing matching, and per-job logging — so we
-    never parse filenames at runtime. `args` is what's passed to canvit_eval CLI.
-    `already_done()` is a timestamp-agnostic glob match on the FULL filename
-    (so r0 and r1 of the same config are distinguishable).
-    """
     task: TaskName
     args: list[str]
     output: Path
-    output_stem: str          # filename prefix up to the timestamp (for logs + tests)
-    model: str                # "canvit" | "canvit-finetuned" | "dinov3-b" | "dinov3-s" | ablation-slug
+    output_stem: str
+    model: str
     policy: PolicyName | None = None
     scene_size: int | None = None
     canvas_grid: int | None = None
@@ -222,10 +144,7 @@ class EvalJob:
     run_idx: int = 0
 
     def already_done(self) -> bool:
-        """True iff any .pt matching this job's structural identity exists
-        in the output dir. Matches on the full filename with the timestamp
-        replaced by `*` — so different run_idx values are distinct (r0 does
-        NOT satisfy r1's check)."""
+        """Glob match on this job's filename with the timestamp replaced by `*`."""
         pattern = _TS_RE.sub("*", self.output.name)
         return any(self.output.parent.glob(pattern))
 
@@ -243,9 +162,6 @@ class EvalJob:
         return " ".join(parts)
 
 
-# ── Matrix builders ────────────────────────────────────────────────────
-
-
 def _ade20k_seg_jobs(
     out_dir: Path, *, n_runs: int, n_timesteps: int, ts: str,
     ade20k_res: list[tuple[int, int, int]], canvas_grids: list[tuple[int, int]],
@@ -254,7 +170,7 @@ def _ade20k_seg_jobs(
     d = out_dir / "ade20k_seg"
     batch_size_by_scene = {scene: bs for scene, _, bs in ade20k_res}
 
-    # (a) CanViT multi-timestep policy evals.
+    # CanViT multi-timestep policy evals.
     for scene, grid, bs in ade20k_res:
         probe = _probe_repo(scene, grid)
         for policy in ALL_POLICIES:
@@ -274,7 +190,7 @@ def _ade20k_seg_jobs(
                     scene_size=scene, canvas_grid=grid, run_idx=run,
                 ))
 
-    # (b) DINOv3 baselines (single passive forward, deterministic → n_runs=1).
+    # DINOv3 baselines: single passive forward, deterministic.
     for variant, teacher_repo in DINOV3_VARIANTS.items():
         for res in DINOV3_RESOLUTIONS:
             stem = f"{variant}_{res}px"
@@ -290,7 +206,7 @@ def _ade20k_seg_jobs(
                 input_px=res, canvas_grid=res // 16,
             ))
 
-    # (c) CanViT single-glimpse probes (t=0, full-scene viewpoint — deterministic).
+    # CanViT single-glimpse probes (t=0 full-scene; deterministic).
     for scene, grid in canvas_grids:
         bs = batch_size_by_scene[scene]
         stem = f"canvit_s{scene}_c{grid}"
@@ -384,8 +300,8 @@ def build_eval_matrix(
             ade20k_res=ade20k_res, canvas_grids=canvas_grids,
         ))
     if "in1k-clf" in tasks:
-        # Frozen mode sweeps extra resolutions for the "canvas size is irrelevant for IN1k"
-        # paper claim; finetuned mode is baseline-only (see EXTRA_IN1K_RESOLUTIONS comment).
+        # Extra grids only expand frozen mode; finetuned weights were specialised
+        # at one (scene, grid) and off-grid inference is a separate question.
         frozen_res = IN1K_RESOLUTIONS + (EXTRA_IN1K_RESOLUTIONS if include_extra_grids else [])
         frozen_res = _cap_batch_sizes(frozen_res, max_batch_size)
         finetuned_res = _cap_batch_sizes(IN1K_RESOLUTIONS, max_batch_size)
@@ -396,11 +312,10 @@ def build_eval_matrix(
     if "recon" in tasks:
         jobs.extend(_recon_jobs(out_dir, n_runs=n_runs, ts=ts))
 
-    # Breadth-first scheduling: run every config once at r=0, then r=1, etc.
-    # Lets a preview figure emerge after len(configs) jobs (end of round 0)
-    # instead of only when the whole matrix finishes. Filenames are pure
-    # functions of (structural fields, invocation ts) so reordering here
-    # does not affect filenames, skip-existing, sync, or any consumer.
+    # Breadth-first across run_idx: every cell runs once at r=0 before any r=1,
+    # so an interrupted batch still yields n=1 per cell. Filenames are pure
+    # functions of (structural fields, invocation ts), so reordering here
+    # doesn't affect filenames, skip-existing, or any consumer.
     jobs.sort(key=lambda j: (
         j.run_idx, j.task, j.model,
         j.scene_size or 0, j.canvas_grid or 0, j.input_px or 0,
@@ -414,10 +329,7 @@ def filter_jobs(
     policies: list[str] | None = None,
     grids: list[int] | None = None,
 ) -> list[EvalJob]:
-    """Keep jobs matching every supplied filter. Each filter drops jobs whose
-    corresponding field is None (i.e., a grid filter drops DINOv3 jobs with
-    `canvas_grid=res//16` still counts — those do have a canvas_grid). None/[]
-    filter = pass-through for that dimension."""
+    """Drop jobs whose policy/canvas_grid is None or doesn't match the filter."""
     out = jobs
     if policies:
         policy_set = set(policies)
@@ -426,9 +338,6 @@ def filter_jobs(
         grid_set = set(grids)
         out = [j for j in out if j.canvas_grid is not None and j.canvas_grid in grid_set]
     return out
-
-
-# ── CLI ────────────────────────────────────────────────────────────────
 
 
 @dataclass

@@ -1,13 +1,4 @@
-"""CanViT evaluation CLI — thin dispatch over the task Configs.
-
-    uv run python -m canvit_eval ade20k-seg-canvit --probe-repo <org>/probe-... [--episode.policy ...]
-    uv run python -m canvit_eval ade20k-seg-dinov3 --probe-repo <org>/... --eval-resolution 128
-    uv run python -m canvit_eval in1k-clf
-    uv run python -m canvit_eval reconstruction --model-repo <org>/canvitb16-abl-...
-
-Each subcommand IS its task's Config dataclass (each has a `run()` method);
-there's no separate CLI-level wrapper.
-"""
+"""CLI dispatch: each subcommand is a task Config dataclass with a `run()` method."""
 
 import logging
 from typing import Annotated, Union

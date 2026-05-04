@@ -1,9 +1,4 @@
-"""Shared evaluation runner — the common loop across all CanViT tasks.
-
-All tasks share: load model → iterate batches → make policy → run episode.
-Only the per-step processing differs. This module provides the common loop
-as a generator, so tasks just iterate and process.
-"""
+"""Per-batch episode generator shared across tasks."""
 
 import logging
 from collections.abc import Iterator
@@ -23,14 +18,11 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class BatchResult:
-    """One batch's episode results + the raw batch data."""
-
     steps: list[EpisodeStep]
-    batch: tuple  # whatever the DataLoader yields (images, masks) or (images, labels) or (images,)
+    batch: tuple
 
 
 def load_model(model_repo: str, device: torch.device) -> CanViTForPretrainingHFHub:
-    """Load CanViT from a repo ID or local checkpoint directory."""
     log.info("Loading model: %s", model_repo)
     model = CanViTForPretrainingHFHub.from_pretrained(model_repo).to(device).eval()
     log.info("  canvas_dim=%d, local_dim=%d", model.canvas_dim, model.local_dim)
@@ -47,7 +39,6 @@ def eval_batches(
     amp: bool = True,
     policy_kwargs: dict | None = None,
 ) -> Iterator[BatchResult]:
-    """Iterate dataset, yielding BatchResult per batch. `policy_kwargs` passes e.g. `probe=` for entropy-C2F."""
     T = episode_cfg.n_timesteps
     amp_dtype = torch.bfloat16 if amp else torch.float32
     kw = policy_kwargs or {}

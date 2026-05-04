@@ -1,10 +1,7 @@
 """Viewing policies for CanViT evaluation.
 
-Static policies (C2F, F2C, random, etc.) are viewpoint generators from canvit_pytorch.policies.
-This module wraps them into the Policy protocol and adds interactive policies
-(entropy-guided C2F) that depend on model state.
-
-Convention: centers are (y, x) in [-1, 1]. Scales in (0, 1].
+Wraps `canvit_pytorch.policies` viewpoint generators into the `Policy` protocol,
+plus the interactive entropy-guided C2F policy that depends on probe state.
 """
 
 import logging
@@ -33,11 +30,8 @@ PolicyName = Literal[
     "repeated_full_scene",
 ]
 
-# Subset for IN1k classification: entropy C2F excluded (requires a get_spatial_fn
-# that the classification head doesn't expose). repeated_full_scene IS applicable
-# — the canvas is state-ful, so repeated same-input produces a non-trivial
-# temporal trajectory and serves as a baseline for "does policy matter beyond
-# just iterating the model?"
+# entropy_coarse_to_fine excluded: the IN1k classification head doesn't expose
+# a get_spatial_fn for the entropy probe.
 IN1K_POLICIES: list[PolicyName] = [
     "coarse_to_fine", "fine_to_coarse", "full_then_random", "random", "repeated_full_scene",
 ]
@@ -45,12 +39,7 @@ IN1K_POLICIES: list[PolicyName] = [
 GetSpatialFn = Callable[[Tensor], Tensor]
 
 
-# ── Static policies ──────────────────────────────────────────────────────────
-
-
 class StaticPolicy:
-    """Pre-generated viewpoints, ignoring canvas state."""
-
     def __init__(self, name: str, viewpoints: list[Viewpoint]) -> None:
         self.name = name
         self._viewpoints = viewpoints
@@ -59,13 +48,9 @@ class StaticPolicy:
         return self._viewpoints[t]
 
 
-# ── Entropy-guided C2F ───────────────────────────────────────────────────────
-
-
 def _build_tile_masks(
     crop_centers: list[tuple[float, float, float]], canvas_grid: int, device: torch.device,
 ) -> Tensor:
-    """[n_tiles, G, G] boolean masks for tiles at a given C2F level."""
     G = canvas_grid
     assert G > 0 and (G & (G - 1)) == 0, f"canvas_grid must be a power of 2, got {G}"
     coords = torch.linspace(-1 + 1 / G, 1 - 1 / G, G, device=device)
@@ -77,12 +62,7 @@ def _build_tile_masks(
 
 
 class EntropyGuidedC2F:
-    """C2F with within-level ordering by segmentation probe entropy.
-
-    At each C2F level, visits crops in order of decreasing entropy
-    (most uncertain first). Zero additional compute — the probe is already
-    needed for mIoU anyway.
-    """
+    """C2F levels visited in order of decreasing per-tile probe entropy."""
 
     name = "entropy_coarse_to_fine"
 
@@ -96,8 +76,7 @@ class EntropyGuidedC2F:
         self._probe = probe
         self._get_spatial_fn = get_spatial_fn
 
-        # 3 C2F levels yield T=21: 1 full-scene + 4 half-quadrants + 16 quarter-tiles.
-        # Level 0 (full-scene) needs no tile mask or visited bookkeeping.
+        # 3 C2F levels: 1 full-scene + 4 half-quadrants + 16 quarter-tiles = 21 timesteps.
         N_LEVELS = 3
         self._levels = [level_viewpoints(lvl) for lvl in range(N_LEVELS)]
         self._level_starts: list[int] = []
@@ -153,9 +132,6 @@ class EntropyGuidedC2F:
         return Viewpoint(centers=selected[:, :2], scales=selected[:, 2])
 
 
-# ── Factory ──────────────────────────────────────────────────────────────────
-
-
 def make_policy(
     name: PolicyName,
     batch_size: int,
@@ -168,7 +144,6 @@ def make_policy(
     probe: torch.nn.Module | None = None,
     get_spatial_fn: GetSpatialFn | None = None,
 ) -> StaticPolicy | EntropyGuidedC2F:
-    """Create a viewing policy by name. No aliases — use canonical names only."""
     if name == "coarse_to_fine":
         return StaticPolicy(name, coarse_to_fine_viewpoints(batch_size, device, n_viewpoints))
     if name == "fine_to_coarse":

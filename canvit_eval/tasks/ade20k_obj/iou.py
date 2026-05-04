@@ -1,12 +1,7 @@
-"""Per-(image, class[, timestep]) IoU for DINOv3 and CanViT on ADE20K validation set.
+"""Per-(image, class[, timestep]) IoU for DINOv3 and CanViT on ADE20K val.
 
-DINOv3: loads pre-extracted features.pt, runs probe, writes DV3_PARQUET.
-CanViT: runs episodes on the fly with EntropyC2F policy, writes CANVIT_PARQUET
-        with one row per (image, class, timestep).
-
-Usage:
-    uv run python -m canvit_eval.tasks.ade20k_obj.iou dinov3
-    uv run python -m canvit_eval.tasks.ade20k_obj.iou canvit --canvas-resolutions 8 32 64
+DINOv3: load pre-extracted features.pt, run probe → DV3_PARQUET.
+CanViT: run episodes on the fly → CANVIT_PARQUET (one row per image, class, timestep).
 """
 
 import gc
@@ -49,8 +44,7 @@ log = logging.getLogger(__name__)
 def _canvas_policy(canvas_grid: int) -> str:
     return "entropy_coarse_to_fine" if (canvas_grid & (canvas_grid - 1)) == 0 else "coarse_to_fine"
 
-# Upsample-chunk size: bound peak memory at ~1.25 GB regardless of canvas_grid
-# (8 × 150 classes × 512² × 4 B). Larger batches get chunked; smaller stay whole.
+# Bound the upsampled-logits intermediate at large canvas_grid.
 _UPSAMPLE_CHUNK = 8
 
 CANVIT_PROBE_REPOS: dict[int, str] = {
@@ -73,7 +67,6 @@ class BaseConfig(TaskConfig):
 
 @dataclass(kw_only=True)
 class DINOv3Config(BaseConfig):
-    """Load pre-extracted DINOv3 features.pt and run probe per resolution."""
     output: Path = DV3_PARQUET
     exports_dir: Path = FEATURES_DIR
     resolutions_px: list[int] = field(default_factory=lambda: sorted(
@@ -87,15 +80,6 @@ class DINOv3Config(BaseConfig):
 
 @dataclass(kw_only=True)
 class CanViTConfig(BaseConfig):
-    """On-the-fly CanViT episodes (EG-C2F) → per-(image, class, timestep) IoU.
-
-    Parquet columns (see _to_long_df): image_idx, class_idx, canvas_resolution,
-    timestep, inter_px, union_px, gt_area_px, mask_resolution_px, resize_mode.
-    Full N×C cross product per (canvas, timestep) — no gt_area filter; consumer
-    derives `iou = inter_px / union_px` and filters `gt_area_px > 0` on read
-    for GT-present-only analyses.
-    """
-
     output: Path = CANVIT_PARQUET
     canvas_resolutions: list[int] = field(default_factory=list)
     model_repo: str = field(default_factory=lambda: EpisodeConfig().model_repo)
@@ -107,68 +91,41 @@ class CanViTConfig(BaseConfig):
         return run_canvit(self)
 
 
-# ── Shared utilities ─────────────────────────────────────────────────────────
-
-
 def _batch_confusion(
     preds: torch.Tensor,
     masks: torch.Tensor,
     n_classes: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Per-image (inter, union, gt_area) for a whole batch in a single kernel.
+    """Per-image (inter, union, gt_area) for a whole batch via a single scatter_add.
 
-    preds: [B, H, W] int64, class prediction ∈ [0, n_classes − 1].
-    masks: [B, H, W] int64, 0-indexed GT ∈ [0, n_classes − 1] ∪ {IGNORE_LABEL}.
-      (`canvit_specialize.datasets.ade20k.ADE20kDataset.__getitem__` emits this
-       convention via `.long() - 1` + remap `<0` to IGNORE_LABEL.)
-
-    Returns three [B, n_classes] float32 tensors. float32 is chosen for
-    compatibility with `_per_image_iou`'s historical dtype AND because
-    per-cell counts max out at H·W = 262144 for 512² masks — well below
-    float32's exact-integer limit (2²³ = 8.4M). If you ever call with
-    H·W > 2²³, promote the accumulator.
-
-    Correctness invariants (all covered by `tests/test_iou_equivalence.py`):
-      • Integer-exact match with numpy.bincount reference — the scatter_add
-        on a per-image offset reproduces a per-image np.bincount exactly.
-      • `(pair >= 0) & (pair < n_classes²)` is defense-in-depth against out
-        -of-bounds predictions / masks; argmax on n_classes-wide logits and
-        the canvit_specialize loader both guarantee in-range inputs. The
-        filter is cheap and catches bugs that would otherwise silently
-        corrupt unrelated bins via scatter_add address wrap-around.
-      • scatter_add is deterministic on integer-valued accumulators (the
-        sum is associative when all summands are exact integers), even
-        though GPU scatter_add is non-deterministic in general.
+    preds, masks: [B, H, W] int64; mask values in [0, n_classes-1] ∪ {IGNORE_LABEL}.
+    Returns three [B, n_classes] float32 tensors. Integer-exact (counts ≤ 512² =
+    262144 stay well under float32's 2^23 exact-integer limit). Bit-matches
+    np.bincount reference — see test_iou_equivalence.py.
     """
     B, H, W = preds.shape
     assert masks.shape == preds.shape, (preds.shape, masks.shape)
-    # int64 is what argmax returns + what the dataloader emits; documenting the
-    # contract via assertion (rather than casting) surfaces accidental misuse.
     assert preds.dtype == torch.int64 and masks.dtype == torch.int64, (preds.dtype, masks.dtype)
     device = preds.device
     C2 = n_classes * n_classes
 
-    pair = preds * n_classes + masks                                     # [B, H, W]
+    pair = preds * n_classes + masks
     keep = (masks != IGNORE_LABEL) & (pair >= 0) & (pair < C2)
     img_idx = torch.arange(B, device=device).view(B, 1, 1).expand_as(preds)
-    flat = (img_idx * C2 + pair)[keep]                                    # [K], int64
+    flat = (img_idx * C2 + pair)[keep]
 
-    # Materialise the confusion matrix as a flat B·C² buffer (per-image
-    # offset = b·C²), then view as [B, C, C]. scatter_add_ handles duplicate
-    # indices by summing — the natural semantics for confusion accumulation.
     cm = torch.zeros(B * C2, dtype=torch.float32, device=device)
     cm.scatter_add_(0, flat, torch.ones_like(flat, dtype=torch.float32))
     cm = cm.view(B, n_classes, n_classes)
 
-    inter = cm.diagonal(dim1=1, dim2=2)             # [B, C]
-    row_sum = cm.sum(dim=2)                         # [B, C]   (pred rows)
-    col_sum = cm.sum(dim=1)                         # [B, C]   (gt cols)
+    inter = cm.diagonal(dim1=1, dim2=2)
+    row_sum = cm.sum(dim=2)
+    col_sum = cm.sum(dim=1)
     union = row_sum + col_sum - inter
-    return inter, union, col_sum                    # gt_area = col sums
+    return inter, union, col_sum
 
 
 def _miou_sanity(inter_t: torch.Tensor, union_t: torch.Tensor, label: str) -> None:
-    """Print global mIoU from summed intersection/union tensors [N, C]."""
     total_inter = inter_t.sum(0)
     total_union = union_t.sum(0)
     valid = total_union > 0
@@ -184,14 +141,11 @@ def _to_long_df(
     mask_resolution_px: int,
     resize_mode: str,
 ) -> pd.DataFrame:
-    """One row per (image, class) — full N×C, no filter. Raw int64 counts;
-    consumer derives `iou = inter_px / union_px` and filters `gt_area_px > 0`
-    on read for GT-present-only analyses. Absent-class rows (gt_area_px==0)
-    carry FP-only data needed for verification probes."""
+    """One row per (image, class) — full N×C, no filter."""
     assert inter.shape == union.shape == gt_area.shape, (inter.shape, union.shape, gt_area.shape)
     N, C = inter.shape
     img_idx = torch.arange(N).repeat_interleave(C)
-    cls_idx = torch.arange(1, C + 1).repeat(N)  # 1-indexed, matches ADE20K convention
+    cls_idx = torch.arange(1, C + 1).repeat(N)  # ADE20K is 1-indexed
     return pd.DataFrame({
         "image_idx": img_idx.numpy(),
         "class_idx": cls_idx.numpy(),
@@ -202,9 +156,6 @@ def _to_long_df(
         "mask_resolution_px": mask_resolution_px,
         "resize_mode": resize_mode,
     })
-
-
-# ── DINOv3 ───────────────────────────────────────────────────────────────────
 
 
 @torch.inference_mode()
@@ -313,12 +264,8 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     return cfg.output
 
 
-# ── CanViT ────────────────────────────────────────────────────────────────────
-
-
 @torch.inference_mode()
 def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -> pd.DataFrame:
-    """Run CanViT episode for one canvas_resolution; return long-form DataFrame."""
     assert canvas_grid in CANVIT_PROBE_REPOS, (canvas_grid, sorted(CANVIT_PROBE_REPOS))
     require_existing_dir(cfg.ade20k_root_path, description="ADE20K root", env_var="ADE20K_ROOT")
     t0 = time.monotonic()
@@ -384,9 +331,6 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
                 logits = probe(spatial.float())
             assert logits.ndim == 4 and logits.shape[0] == B, logits.shape
 
-            # Chunked upsample keeps peak memory bounded. Upsampling the full
-            # batch to 512² at canvas_grid=64 × B=32 is ~5 GB; 8-at-a-time is
-            # ~1.25 GB peak regardless of canvas_grid.
             if logits.shape[-1] != masks_dev.shape[-1]:
                 preds = torch.empty((B, cfg.scene_size_px, cfg.scene_size_px),
                                      dtype=torch.int64, device=device)
@@ -400,7 +344,6 @@ def _run_one_canvas(canvas_grid: int, cfg: CanViTConfig, device: torch.device) -
             else:
                 preds = logits.argmax(dim=1)
 
-            # One scatter_add for the whole batch (replaces B per-image histc calls).
             inter, union, gt_area = _batch_confusion(preds, masks_dev, n_classes)
             inter_all[step.t, img_start:img_start + B] = inter.cpu()
             union_all[step.t, img_start:img_start + B] = union.cpu()
@@ -500,8 +443,8 @@ def run_canvit(cfg: CanViTConfig) -> Path:
         raise ValueError(f"No probe repo for canvas_resolution={unknown}. Available: {sorted(CANVIT_PROBE_REPOS)}")
     assert cfg.n_timesteps > 0, cfg.n_timesteps
 
-    # Multi-canvas: one subprocess per resolution so CUDA memory is fully released
-    # between runs (in-process cleanup is best-effort; subprocess is bulletproof).
+    # One subprocess per canvas_resolution: CUDA memory is fully released between
+    # runs without relying on in-process cleanup.
     if len(cfg.canvas_resolutions) > 1:
         log.info("=== CanViT per-(image, class, timestep) IoU ===")
         log.info("model_repo=%s", cfg.model_repo)
@@ -528,7 +471,6 @@ def run_canvit(cfg: CanViTConfig) -> Path:
         _write_canvit_sidecar(cfg, resolutions_in_parquet=resolutions_in_parquet, device=None)
         return cfg.output
 
-    # Single canvas: run in-process.
     device = torch.device(cfg.device)
     (cr,) = cfg.canvas_resolutions
     log.info("=== CanViT per-(image, class, timestep) IoU ===")
@@ -562,8 +504,6 @@ def run_canvit(cfg: CanViTConfig) -> Path:
     )
     return cfg.output
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     cmd = tyro.cli(
