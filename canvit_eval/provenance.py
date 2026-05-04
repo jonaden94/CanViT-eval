@@ -16,9 +16,11 @@ import torch
 
 
 def _git(*args: str) -> str:
+    # OSError covers missing/non-executable git binary and subprocess pipe failures;
+    # CalledProcessError covers non-zero exit (e.g. not in a git repo).
     try:
         return subprocess.check_output(["git", *args], text=True).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, OSError):
         return ""
 
 
