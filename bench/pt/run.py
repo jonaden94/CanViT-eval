@@ -27,6 +27,8 @@ from canvit_pytorch.model.base import CanViT, CanViTConfig
 from canvit_pytorch.viewpoint import Viewpoint, sample_at_viewpoint
 from canvit_pytorch.teacher import load_teacher
 
+from canvit_eval.config import DINOV3_VITB_REPO, DINOV3_VITS_REPO
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d [%(name)s] %(message)s",
@@ -36,8 +38,8 @@ logging.basicConfig(
 log = logging.getLogger("bench")
 
 DINOV3_REPOS = {
-    "dinov3-vitb16": "facebook/dinov3-vitb16-pretrain-lvd1689m",
-    "dinov3-vits16": "facebook/dinov3-vits16-pretrain-lvd1689m",
+    "dinov3-vitb16": DINOV3_VITB_REPO,
+    "dinov3-vits16": DINOV3_VITS_REPO,
 }
 CANVIT_GLIMPSE_PX = 128
 RESULTS_DIR = Path(__file__).parent / "results"

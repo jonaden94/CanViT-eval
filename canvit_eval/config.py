@@ -20,8 +20,10 @@ log = logging.getLogger(__name__)
 # Pretrained CanViT-B repo (IN21k, additive canvas, VPE, DINOv3-B/16 teacher).
 DEFAULT_PRETRAINED_REPO = resolve_canvit_repo("canvitb16-add-vpe-pretrain-g128px-s512px-in21k-dv3b16-2026-02-02")
 
-# DINOv3 teacher repo (public, third-party — no resolve wrap).
-TEACHER_REPO = "facebook/dinov3-vitb16-pretrain-lvd1689m"
+# DINOv3 teacher repos (public, third-party — no resolve wrap).
+DINOV3_VITB_REPO = "facebook/dinov3-vitb16-pretrain-lvd1689m"
+DINOV3_VITS_REPO = "facebook/dinov3-vits16-pretrain-lvd1689m"
+TEACHER_REPO = DINOV3_VITB_REPO
 
 
 def _resolve_path(env_var: str, known_paths: list[str], description: str) -> Path:

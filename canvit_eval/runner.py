@@ -3,9 +3,11 @@
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 from canvit_pytorch.model.pretraining.hub import CanViTForPretrainingHFHub
+from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -19,7 +21,7 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class BatchResult:
     steps: list[EpisodeStep]
-    batch: tuple
+    batch: tuple[Tensor, ...]
 
 
 def load_model(model_repo: str, device: torch.device) -> CanViTForPretrainingHFHub:
@@ -37,7 +39,7 @@ def eval_batches(
     canvas_grid: int,
     device: torch.device,
     amp: bool = True,
-    policy_kwargs: dict | None = None,
+    policy_kwargs: dict[str, Any] | None = None,
 ) -> Iterator[BatchResult]:
     T = episode_cfg.n_timesteps
     amp_dtype = torch.bfloat16 if amp else torch.float32

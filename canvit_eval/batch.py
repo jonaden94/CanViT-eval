@@ -20,6 +20,7 @@ from typing import Literal, get_args
 import tyro
 from canvit_pytorch import resolve_canvit_repo
 
+from canvit_eval.config import DINOV3_VITB_REPO, DINOV3_VITS_REPO
 from canvit_eval.policies import IN1K_POLICIES, PolicyName
 
 log = logging.getLogger(__name__)
@@ -91,8 +92,8 @@ EXTRA_IN1K_RESOLUTIONS: list[tuple[int, int, int]] = [
 ]
 
 DINOV3_VARIANTS: dict[str, str] = {
-    "dv3b": "facebook/dinov3-vitb16-pretrain-lvd1689m",
-    "dv3s": "facebook/dinov3-vits16-pretrain-lvd1689m",
+    "dv3b": DINOV3_VITB_REPO,
+    "dv3s": DINOV3_VITS_REPO,
 }
 DINOV3_RESOLUTIONS: list[int] = [128, 144, 160, 192, 256, 384, 512]
 
