@@ -16,14 +16,18 @@ Evaluation and benchmarking for CanViT.
 
 ## Install
 
+Requires [`uv`](https://docs.astral.sh/uv/).
+
     uv sync
 
 ## Dataset paths
 
-Set the env vars in `.envrc.example`, or pass paths via the per-task CLI flags:
+Set these env vars (or pass the per-task CLI flags):
 
     ADE20K_ROOT     # path to ADEChallengeData2016
     IMAGENET_VAL    # path to ILSVRC2012/val
+
+`.envrc.example` is a template you can copy to `.envrc`.
 
 ## Single eval
 
