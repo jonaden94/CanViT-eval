@@ -96,7 +96,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "canvit-pytorch", git = "https://github.com/m2b3/CanViT-PyTorch.git" },
-    { name = "canvit-specialize", git = "ssh://git@github.com/m2b3/CanViT-specialize.git" },
+    { name = "canvit-specialize", git = "https://github.com/m2b3/CanViT-specialize.git" },
     { name = "huggingface-hub", specifier = ">=0.20.0" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "safetensors", specifier = ">=0.4.0" },
@@ -139,7 +139,7 @@ dependencies = [
 [[package]]
 name = "canvit-specialize"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/m2b3/CanViT-specialize.git#af9768040083c000ae6e7773086bb666dbd28fe7" }
+source = { git = "https://github.com/m2b3/CanViT-specialize.git#eeca995d6cdcb49c37dec15d15f838de93e3dd9d" }
 dependencies = [
     { name = "canvit-pytorch" },
     { name = "comet-ml" },
