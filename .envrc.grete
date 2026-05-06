@@ -1,0 +1,15 @@
+# Grete cluster environment variables for canvit-eval.
+# Copy to .envrc: cp .envrc.grete .envrc && direnv allow
+# (or it will be sourced directly by slurm_nhr/env.sh in SLURM jobs)
+
+# Caches
+export HF_HOME="/user/henrich1/u25995/.cache/huggingface"
+export TORCH_HOME="/user/henrich1/u25995/.cache/torch"
+export TORCH_COMPILE_CACHE_DIR="/user/henrich1/u25995/.cache/torch_compile"
+
+# Datasets
+export IMAGENET_VAL="/user/henrich1/u25995/jonathan/datasets/imagenet1k-val"
+# export ADE20K_ROOT=/path/to/ADEChallengeData2016
+
+# Credentials
+if [ -f "${HF_HOME:-}/token" ] && [ -z "${HF_TOKEN:-}" ]; then export HF_TOKEN=$(cat "$HF_HOME/token"); fi
