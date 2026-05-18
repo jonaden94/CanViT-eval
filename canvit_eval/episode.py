@@ -4,12 +4,13 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from canvit_pytorch import CanViTOutput, RecurrentState, Viewpoint, sample_at_viewpoint
+from canvit_pytorch.patcher.foveated import FoveatedPatcher
 from torch import Tensor
 
 
 class CanViTModel(Protocol):
     def init_state(self, *, batch_size: int, canvas_grid_size: int) -> RecurrentState: ...
-    def __call__(self, *, glimpse: Tensor, state: RecurrentState, viewpoint: Viewpoint) -> CanViTOutput: ...
+    def __call__(self, *, image: Tensor, state: RecurrentState, viewpoint: Viewpoint) -> CanViTOutput: ...
 
 
 class Policy(Protocol):
@@ -38,11 +39,21 @@ def run_episode(
     if state is None:
         state = model.init_state(batch_size=B, canvas_grid_size=canvas_grid)
 
+    # Foveated patcher consumes the full image (foveates around viewpoint.centers
+    # internally). Uniform patcher, as wrapped by the downstream classification /
+    # segmentation models (glimpse_size_px=None), expects a pre-cropped glimpse.
+    is_foveated = isinstance(getattr(model, "patcher", None), FoveatedPatcher)
+
     steps: list[EpisodeStep] = []
     for t in range(n_timesteps):
         vp = policy.step(t, state)
-        glimpse = sample_at_viewpoint(spatial=images, viewpoint=vp, glimpse_size_px=glimpse_px)
-        out = model(glimpse=glimpse, state=state, viewpoint=vp)
+        if is_foveated:
+            model_input = images
+        else:
+            model_input = sample_at_viewpoint(
+                spatial=images, viewpoint=vp, glimpse_size_px=glimpse_px,
+            )
+        out = model(image=model_input, state=state, viewpoint=vp)
         state = out.state
         steps.append(EpisodeStep(t=t, state=state, output=out, viewpoint=vp))
 
