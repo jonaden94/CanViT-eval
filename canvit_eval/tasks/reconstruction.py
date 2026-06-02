@@ -82,23 +82,11 @@ def evaluate(cfg: Config) -> Path:
     loader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers,
                         pin_memory=True, shuffle=False)
 
-    # Teacher features
+    # Streaming teacher: compute features per-batch INSIDE the eval loop and
+    # consume them immediately. Avoids accumulating 50k×1024×768 teacher
+    # features in CPU RAM (~80 GB → OOM); per-batch tensors are ~50 MB on GPU.
+    # cfg.teacher_cache is ignored in this path (no upfront precompute).
     teacher = load_teacher(TEACHER_REPO, device)
-    if cfg.teacher_cache is not None and cfg.teacher_cache.exists():
-        cached = torch.load(cfg.teacher_cache, map_location="cpu", weights_only=True)
-        t_patches, t_cls = cached["patches"], cached["cls"]
-    else:
-        plist, clist = [], []
-        for batch in tqdm(loader, desc="Teacher"):
-            feats = teacher.forward_norm_features(batch[0].to(device))
-            plist.append(feats.patches.cpu())
-            clist.append(feats.cls.cpu())
-        t_patches, t_cls = torch.cat(plist), torch.cat(clist)
-        if cfg.teacher_cache is not None:
-            cfg.teacher_cache.parent.mkdir(parents=True, exist_ok=True)
-            torch.save({"patches": t_patches, "cls": t_cls}, cfg.teacher_cache)
-    del teacher
-    torch.cuda.empty_cache()
 
     T = cfg.episode.n_timesteps
     accs = [_Acc() for _ in range(T)]
@@ -107,9 +95,12 @@ def evaluate(cfg: Config) -> Path:
 
     for br in eval_batches(model=model, loader=loader, episode_cfg=cfg.episode,
                            canvas_grid=canvas_grid, device=device, amp=cfg.amp):
-        B = br.batch[0].shape[0]
-        raw_p = t_patches[idx:idx + B].to(device).float()
-        raw_c = t_cls[idx:idx + B].to(device).float()
+        images = br.batch[0].to(device, non_blocking=True)
+        B = images.shape[0]
+
+        feats = teacher.forward_norm_features(images)
+        raw_p = feats.patches.float()
+        raw_c = feats.cls.float()
         norm_p, norm_c = scene_std(raw_p), cls_std(raw_c.unsqueeze(1)).squeeze(1)
         idx += B
 
@@ -122,6 +113,9 @@ def evaluate(cfg: Config) -> Path:
             a.cls_raw += F.cosine_similarity(pc, raw_c, dim=-1).mean().item() * B
             a.cls_norm += F.cosine_similarity(pc, norm_c, dim=-1).mean().item() * B
             a.n += B
+
+    del teacher
+    torch.cuda.empty_cache()
 
     elapsed = time.perf_counter() - t0
     per_t = [{"t": t, "scene_cos_raw": a.scene_raw / a.n, "cls_cos_raw": a.cls_raw / a.n,
