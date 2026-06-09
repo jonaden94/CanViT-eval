@@ -10,8 +10,8 @@
 #SBATCH --mem=64G
 #SBATCH --exclude=ggpu129,ggpu202
 #SBATCH --array=0-19%1
-#SBATCH -o logs/foveated_add_ons/reconstruction/job-%A_%a.log
-#SBATCH -e logs/foveated_add_ons/reconstruction/job-%A_%a.log
+#SBATCH -o logs/jon_exp19_canvit_fovi_add_ons/reconstruction/job-%A_%a.log
+#SBATCH -e logs/jon_exp19_canvit_fovi_add_ons/reconstruction/job-%A_%a.log
 
 # Teacher-reconstruction (cosine-vs-teacher) eval of the 20 stable exp19 runs.
 # Same metric as pretraining-time validation, dumped per-timestep.
@@ -26,7 +26,7 @@
 # of redundant teacher inference. Cache path is shared across the array.
 #
 # Submit:
-#   sbatch slurm_nhr/foveated_add_ons/reconstruction.sbatch
+#   sbatch slurm_nhr/jon_exp19_canvit_fovi_add_ons/reconstruction.sbatch
 
 cd /user/henrich1/u25995/jonathan/repos/CanViT-eval
 source /user/henrich1/u25995/.bashrc
@@ -74,8 +74,8 @@ RUNS=(
 
 RUN="${RUNS[$SLURM_ARRAY_TASK_ID]}"
 CKPT_HF="/user/henrich1/u25995/jonathan/repos/CanViT-pretrain/logs/foveated_add_ons/$RUN/checkpoints/latest-hf"
-OUT="results/foveated_add_ons/${RUN}_recon.pt"
-CACHE="results/foveated_add_ons/_cache/dinov3b16_in1k_val_512.pt"
+OUT="results/jon_exp19_canvit_fovi_add_ons/${RUN}_recon.pt"
+CACHE="results/jon_exp19_canvit_fovi_add_ons/_cache/dinov3b16_in1k_val_512.pt"
 
 if [ ! -d "$CKPT_HF" ]; then
     log "ERROR: HF-format checkpoint not found: $CKPT_HF"

@@ -13,8 +13,8 @@
 # Single-run teacher-reconstruction (cosine-vs-teacher) eval. Submit one per
 # run via:
 #   sbatch --export=ALL,RUN=<run_name> \
-#          --output=logs/foveated_add_ons/reconstruction/job-%j_<run_name>.log \
-#          slurm_nhr/foveated_add_ons/reconstruction_single.sbatch
+#          --output=logs/jon_exp19_canvit_fovi_add_ons/reconstruction/job-%j_<run_name>.log \
+#          slurm_nhr/jon_exp19_canvit_fovi_add_ons/reconstruction_single.sbatch
 #
 # NOTE: no --teacher-cache here. Parallel jobs would race on a shared cache
 # file (torch.save isn't atomic). Each job computes teacher features locally;
@@ -36,7 +36,7 @@ FLAT_VAL=/user/henrich1/u25995/jonathan/datasets/imagenet1k-val-flattened
 [ -d "$FLAT_VAL" ] || { log "ERROR: flattened val dir not found: $FLAT_VAL"; exit 1; }
 
 CKPT_HF="/user/henrich1/u25995/jonathan/repos/CanViT-pretrain/logs/foveated_add_ons/$RUN/checkpoints/latest-hf"
-OUT="results/foveated_add_ons/${RUN}_recon.pt"
+OUT="results/jon_exp19_canvit_fovi_add_ons/${RUN}_recon.pt"
 [ -d "$CKPT_HF" ] || { log "ERROR: HF checkpoint not found: $CKPT_HF"; exit 1; }
 
 log "=== exp19 reconstruction :: $RUN ==="

@@ -12,8 +12,8 @@
 
 # Single-run IN1k frozen-probe eval. Submit one per run via:
 #   sbatch --export=ALL,RUN=<run_name> \
-#          --output=logs/foveated_add_ons/in1k_clf/job-%j_<run_name>.log \
-#          slurm_nhr/foveated_add_ons/in1k_clf_single.sbatch
+#          --output=logs/jon_exp19_canvit_fovi_add_ons/in1k_clf/job-%j_<run_name>.log \
+#          slurm_nhr/jon_exp19_canvit_fovi_add_ons/in1k_clf_single.sbatch
 
 cd /user/henrich1/u25995/jonathan/repos/CanViT-eval
 source /user/henrich1/u25995/.bashrc
@@ -28,7 +28,7 @@ VENV=".venv"
 [ -n "${IMAGENET_VAL:-}" ] && [ -d "$IMAGENET_VAL" ] || { log "ERROR: IMAGENET_VAL unset/missing"; exit 1; }
 
 CKPT_HF="/user/henrich1/u25995/jonathan/repos/CanViT-pretrain/logs/foveated_add_ons/$RUN/checkpoints/latest-hf"
-OUT="results/foveated_add_ons/${RUN}_in1k.pt"
+OUT="results/jon_exp19_canvit_fovi_add_ons/${RUN}_in1k.pt"
 [ -d "$CKPT_HF" ] || { log "ERROR: HF checkpoint not found: $CKPT_HF"; exit 1; }
 
 log "=== exp19 IN1k frozen-probe :: $RUN ==="
