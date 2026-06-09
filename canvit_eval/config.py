@@ -77,6 +77,11 @@ class EpisodeConfig:
     policy: PolicyName = "coarse_to_fine"
     n_timesteps: int = 21
     canvas_grid: int | None = None  # None → scene_size // patch_size
-    glimpse_px: int = 128
+    # Pixel size of the glimpse crop fed to the uniform patcher. ``None`` (default)
+    # derives it from the model as ``glimpse_grid_size × patch_size_px`` — the SAME
+    # value training used (train/model.py) — so it auto-tracks the backbone's patch
+    # size (8px → 64, 16px → 128, 6px → 48, …). Set an int only to force a specific
+    # crop size. Ignored by foveated/square patchers (they consume the full image).
+    glimpse_px: int | None = None
     min_scale: float = 0.05
     max_scale: float = 1.0
