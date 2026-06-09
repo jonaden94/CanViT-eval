@@ -5,6 +5,7 @@ from typing import Protocol
 
 from canvit_pytorch import CanViTOutput, RecurrentState, Viewpoint, sample_at_viewpoint
 from canvit_pytorch.patcher.foveated import FoveatedPatcher
+from canvit_pytorch.patcher.square import SquarePatcher
 from torch import Tensor
 
 
@@ -39,15 +40,22 @@ def run_episode(
     if state is None:
         state = model.init_state(batch_size=B, canvas_grid_size=canvas_grid)
 
-    # Foveated patcher consumes the full image (foveates around viewpoint.centers
-    # internally). Uniform patcher, as wrapped by the downstream classification /
-    # segmentation models (glimpse_size_px=None), expects a pre-cropped glimpse.
-    is_foveated = isinstance(getattr(model, "patcher", None), FoveatedPatcher)
+    # Foveated AND square patchers consume the full image and foveate / sample
+    # internally around viewpoint.centers (scale ignored) -- this is exactly how
+    # they are driven during pretraining, where the model always receives the
+    # full image. Only the uniform patcher, as wrapped by the downstream
+    # classification / segmentation models (glimpse_size_px=None), expects a
+    # pre-cropped glimpse. Routing the square patcher through the uniform
+    # pre-crop path double-crops it (pre-cropped glimpse, then re-foveated),
+    # which silently corrupts its samples and degrades with each finer glimpse.
+    consumes_full_image = isinstance(
+        getattr(model, "patcher", None), (FoveatedPatcher, SquarePatcher)
+    )
 
     steps: list[EpisodeStep] = []
     for t in range(n_timesteps):
         vp = policy.step(t, state)
-        if is_foveated:
+        if consumes_full_image:
             model_input = images
         else:
             model_input = sample_at_viewpoint(
