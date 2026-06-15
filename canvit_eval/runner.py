@@ -58,5 +58,6 @@ def eval_batches(
             steps = run_episode(
                 model=model, images=images, policy=policy,
                 n_timesteps=T, canvas_grid=canvas_grid, glimpse_px=episode_cfg.glimpse_px,
+                foveated_scale=episode_cfg.foveated_scale,
             )
             yield BatchResult(steps=steps, batch=batch)
