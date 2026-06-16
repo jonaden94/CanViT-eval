@@ -1,8 +1,9 @@
 """Run a CanViT episode: T glimpses sampled by a policy, recurrent state updated each step."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
+import torch
 from canvit_pytorch import CanViTOutput, RecurrentState, Viewpoint, sample_at_viewpoint
 from canvit_pytorch.patcher.foveated import FoveatedPatcher
 from canvit_pytorch.patcher.square import SquarePatcher
@@ -34,8 +35,19 @@ def run_episode(
     n_timesteps: int,
     canvas_grid: int,
     glimpse_px: int | None = None,
+    foveated_scale: float | None = 1.0,
     state: RecurrentState | None = None,
 ) -> list[EpisodeStep]:
+    """Run a T-step CanViT episode.
+
+    ``foveated_scale`` controls the view zoom for the foveated/square patchers
+    (which now honor ``viewpoint.scales``, i.e. ``fix_size = scale * H``):
+      * a float (default ``1.0`` = full image): override every glimpse's scale
+        to this constant, keeping the policy's *centers* — reproduces the old
+        "scale-ignored" full-image behavior and lets you eval at any fixed zoom.
+      * ``None``: pass the policy's scales through (e.g. coarse-to-fine then
+        actually zooms the sensor).
+    Ignored for the uniform patcher (its scale already drives the pre-crop)."""
     B = images.shape[0]
     if state is None:
         state = model.init_state(batch_size=B, canvas_grid_size=canvas_grid)
@@ -81,6 +93,12 @@ def run_episode(
         vp = policy.step(t, state)
         if consumes_full_image:
             model_input = images
+            # Foveated/square honor viewpoint.scales (fix_size = scale * H).
+            # Optionally pin the zoom to a fixed scale, keeping policy centers.
+            if foveated_scale is not None:
+                vp = replace(
+                    vp, scales=torch.full_like(vp.scales, float(foveated_scale))
+                )
         else:
             model_input = sample_at_viewpoint(
                 spatial=images, viewpoint=vp, glimpse_size_px=glimpse_px,

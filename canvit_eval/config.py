@@ -85,3 +85,10 @@ class EpisodeConfig:
     glimpse_px: int | None = None
     min_scale: float = 0.05
     max_scale: float = 1.0
+    # View zoom for the foveated/square patchers, which honor viewpoint.scales
+    # (fix_size = scale * H). A float (default 1.0 = full image) pins every
+    # glimpse to that scale while keeping the policy's centers (reproduces the
+    # old scale-ignored behavior; set 0.5 / 1.5 / … to eval at a fixed zoom).
+    # ``None`` passes the policy's own scales through (e.g. coarse-to-fine then
+    # actually zooms the sensor). Ignored by the uniform patcher.
+    foveated_scale: float | None = 1.0
