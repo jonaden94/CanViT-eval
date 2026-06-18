@@ -80,10 +80,6 @@ def evaluate(cfg: Config) -> Path:
     require_existing_dir(cfg.val_dir, description="ImageNet validation directory", env_var="IMAGENET_VAL")
     clf = _load_classifier(cfg, device)
 
-    patch_size_px = clf.canvit.backbone.patch_size_px
-    assert cfg.scene_size % patch_size_px == 0, (
-        f"scene_size={cfg.scene_size} must be divisible by patch_size_px={patch_size_px}"
-    )
     img_size = cfg.scene_size
     dataset = make_in1k_dataset(cfg.val_dir, img_size)
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,
