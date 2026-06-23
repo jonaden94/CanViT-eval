@@ -11,6 +11,42 @@ Requires [`uv`](https://docs.astral.sh/uv/). From the repo root:
 uv sync
 ```
 
+### Local multi-repo setup
+
+This repo sits at the top of a five-repo active-vision project that is developed
+together. `CanViT-eval` depends on both `CanViT-PyTorch[fovi]` and
+`CanViT-specialize`:
+
+```
+repos/
+├── fovi/               # leaf — no internal deps
+├── CanViT-PyTorch/     # depends on fovi
+├── CanViT-specialize/  # depends on CanViT-PyTorch
+├── CanViT-pretrain/    # depends on CanViT-PyTorch[fovi]
+└── CanViT-eval/        # this repo; depends on CanViT-PyTorch[fovi] + CanViT-specialize
+```
+
+Each repo has its **own** uv-managed venv. For the `uv sync` above to work, clone
+all five **as siblings in the same parent folder**. The cross-repo dependencies
+are committed in `pyproject.toml` under `[tool.uv.sources]` as **relative-path
+editable installs**:
+
+```toml
+canvit-pytorch    = { path = "../CanViT-PyTorch", editable = true }
+canvit-specialize = { path = "../CanViT-specialize", editable = true }
+fovi              = { path = "../fovi", editable = true }
+```
+
+Relative paths resolve on any machine as long as the repos are siblings, and the
+editable installs mean edits in the local sibling clones are picked up
+immediately — no reinstall, no manual `uv pip install -e`. To install without a
+given sibling clone, swap its `path = …` line back to the remote fork (e.g.
+`canvit-pytorch = { git = "https://github.com/jonaden94/CanViT-PyTorch.git" }`)
+and `uv sync`.
+
+> For frozen multi-day runs, see `CanViT-pretrain`'s README
+> ("Pinning code for long runs").
+
 ## Datasets
 
 ADE20K (`ADEChallengeData2016/`) and ImageNet-1k (`ILSVRC2012/val/`) are
