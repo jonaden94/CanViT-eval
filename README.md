@@ -8,8 +8,17 @@ the Canvas Vision Transformer.
 Requires [`uv`](https://docs.astral.sh/uv/). From the repo root:
 
 ```bash
+# Default env (.venv) — H100 (sm_90), cu128 torch
 uv sync
+
+# V100 + A100 env (.venv-cu126) — cu126 torch (Grete V100 + A100 partitions)
+UV_PROJECT_ENVIRONMENT=.venv-cu126 uv sync --no-group cuda --group cu126
 ```
+
+The two envs are conflicting, separately-locked resolutions: torch is pinned in
+the `cuda` (default) and `cu126` dependency groups in `pyproject.toml`, so each
+`uv sync` is reproducible. cu126 wheels keep the sm_70 (V100) support the default
+cu128 wheels dropped.
 
 ### Local multi-repo setup
 

@@ -28,7 +28,7 @@ source slurm_nhr/env.sh
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
-VENV=".venv-v100"          # V100 build for the jupyter partition
+VENV=".venv-cu126"          # V100 build for the jupyter partition
 [ -d "$VENV" ] || { log "ERROR: $VENV not found"; exit 1; }
 [ -n "${IMAGENET_VAL:-}" ] && [ -d "$IMAGENET_VAL" ] || { log "ERROR: IMAGENET_VAL unset/missing: ${IMAGENET_VAL:-<unset>}"; exit 1; }
 

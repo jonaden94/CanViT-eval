@@ -34,7 +34,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
-VENV=".venv-v100"          # V100 build for the jupyter partition
+VENV=".venv-cu126"          # V100 build for the jupyter partition
 FLAT_VAL=/user/henrich1/u25995/jonathan/datasets/imagenet1k-val-flattened
 CACHE="results/jon_exp20_canvit_compare_patchers/_cache/dinov3b16_in1k_val_512.pt"
 [ -d "$VENV" ] || { log "ERROR: $VENV not found"; exit 1; }

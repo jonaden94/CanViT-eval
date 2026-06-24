@@ -27,6 +27,7 @@ packages = ["canvit_eval"]
 
 [dependency-groups]
 dev = [
+    "ipykernel",  # Jupyter kernel for notebooks (installed in both .venv and .venv-cu126)
     "basedpyright>=1.37.2",
     "pytest>=9.0.2",
     "pypatree>=0.4.0",
@@ -36,17 +37,17 @@ dev = [
     "pyarrow>=23.0.1",
     "matplotlib>=3.10.8",
 ]
-# Default GPU/CUDA path (A100/H100, sm_80+); torch from the cu128 index. Lives
-# in a group (not base deps) so the cu126 V100 variant can be a conflicting
+# Default GPU/CUDA path (H100, sm_90); torch from the cu128 index. Lives
+# in a group (not base deps) so the cu126 V100+A100 variant can be a conflicting
 # alternative resolution.
 cuda = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
 ]
-# V100 (sm_70) path: cu126 wheels, pinned for reproducibility (the working
+# V100 + A100 path: cu126 wheels, pinned for reproducibility (the working
 # backup had torch 2.12.0 / torchvision 0.27.0). Installed only via:
-#   UV_PROJECT_ENVIRONMENT=.venv-v100 uv sync --no-group cuda --group v100
-v100 = [
+#   UV_PROJECT_ENVIRONMENT=.venv-cu126 uv sync --no-group cuda --group cu126
+cu126 = [
     "torch==2.12.0",
     "torchvision==0.27.0",
 ]
@@ -62,11 +63,11 @@ line-length = 120
 
 [tool.uv]
 default-groups = ["dev", "cuda"]
-# The cu126 (V100/sm_70) torch in the `v100` group is a conflicting alternative
+# The cu126 (V100+A100) torch in the `cu126` group is a conflicting alternative
 # to the default `cuda` (cu128) torch, so uv keeps two separate locked
-# resolutions. Build the V100 env with:
-#   UV_PROJECT_ENVIRONMENT=.venv-v100 uv sync --no-group cuda --group v100
-conflicts = [[{ group = "cuda" }, { group = "v100" }]]
+# resolutions. Build the V100 + A100 env with:
+#   UV_PROJECT_ENVIRONMENT=.venv-cu126 uv sync --no-group cuda --group cu126
+conflicts = [[{ group = "cuda" }, { group = "cu126" }]]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -88,13 +89,13 @@ canvit-pytorch = { path = "../CanViT-PyTorch", editable = true }
 canvit-specialize = { path = "../CanViT-specialize", editable = true }
 fovi = { path = "../fovi", editable = true }
 # Pin cu128 wheels on Linux GPU hosts for the default `cuda` group. On macOS,
-# fall back to default PyPI (CPU-only wheels) for local development. The `v100`
+# fall back to default PyPI (CPU-only wheels) for local development. The `cu126`
 # group pulls cu126 wheels instead (sm_70-compatible).
 torch = [
     { index = "pytorch-cu128", group = "cuda", marker = "sys_platform == 'linux'" },
-    { index = "pytorch-cu126", group = "v100" },
+    { index = "pytorch-cu126", group = "cu126" },
 ]
 torchvision = [
     { index = "pytorch-cu128", group = "cuda", marker = "sys_platform == 'linux'" },
-    { index = "pytorch-cu126", group = "v100" },
+    { index = "pytorch-cu126", group = "cu126" },
 ]

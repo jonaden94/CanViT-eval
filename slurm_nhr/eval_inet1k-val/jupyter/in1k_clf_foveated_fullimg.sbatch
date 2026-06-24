@@ -14,11 +14,11 @@
 ##SBATCH --mail-user=jonathan.henrich@uni-goettingen.de
 
 # IN1k frozen-probe eval of the foveated exp17 checkpoint on V100
-# (jupyter partition, sm_70 — requires cu126 torch via .venv-v100).
+# (jupyter partition, sm_70 — requires cu126 torch via .venv-cu126).
 # Equivalent to ../in1k_clf_foveated.sbatch but on V100 instead of A100.
 #
-# Requires .venv-v100:
-#   bash _setup_v100/setup.sh
+# Requires .venv-cu126:
+#   UV_PROJECT_ENVIRONMENT=.venv-cu126 uv sync --no-group cuda --group cu126
 #
 # Submit:
 #   sbatch slurm_nhr/eval_inet1k-val/jupyter/in1k_clf_foveated_fullimg.sbatch
@@ -36,9 +36,9 @@ log "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/de
 
 source slurm_nhr/env.sh
 
-VENV=".venv-v100"
+VENV=".venv-cu126"
 if [ ! -d "$VENV" ]; then
-    log "ERROR: $VENV not found. Run: bash _setup_v100/setup.sh"
+    log "ERROR: $VENV not found. Run: UV_PROJECT_ENVIRONMENT=.venv-cu126 uv sync --no-group cuda --group cu126"
     exit 1
 fi
 
