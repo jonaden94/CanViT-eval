@@ -25,9 +25,18 @@ log = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
-class FlatImageDataset(Dataset):
+class ImageDirDataset(Dataset):
+    """Label-free image loader. Recurses (rglob), so it handles both a flat
+    directory (e.g. ADE20k val) and a nested class-subdir tree (e.g. ImageNet-1k
+    val with synset folders) without needing a pre-flattened copy. Sorted by
+    filename for a stable, layout-independent ordering (ImageNet val filenames
+    are globally unique)."""
+
     def __init__(self, root: Path, transform: Callable[..., Tensor]) -> None:
-        self.paths = sorted(p for p in root.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS)
+        self.paths = sorted(
+            (p for p in root.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS),
+            key=lambda p: p.name,
+        )
         assert len(self.paths) > 0, f"No images in {root}"
         self.transform = transform
 
@@ -81,7 +90,7 @@ def evaluate(cfg: Config) -> Path:
     cls_std, scene_std = model.standardizers(canvas_grid)
     assert scene_std.initialized
 
-    dataset = FlatImageDataset(cfg.image_dir, preprocess(cfg.scene_size))
+    dataset = ImageDirDataset(cfg.image_dir, preprocess(cfg.scene_size))
     loader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers,
                         pin_memory=True, shuffle=False)
 
