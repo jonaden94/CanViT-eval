@@ -35,27 +35,29 @@ def run_episode(
     n_timesteps: int,
     canvas_grid: int,
     glimpse_px: int | None = None,
-    foveated_scale: float | None = 1.0,
+    override_scale: float | None = None,
     state: RecurrentState | None = None,
 ) -> list[EpisodeStep]:
     """Run a T-step CanViT episode.
 
-    ``foveated_scale`` controls the view zoom for the foveated/square patchers
-    (which now honor ``viewpoint.scales``, i.e. ``fix_size = scale * H``):
-      * a float (default ``1.0`` = full image): override every glimpse's scale
-        to this constant, keeping the policy's *centers* — reproduces the old
-        "scale-ignored" full-image behavior and lets you eval at any fixed zoom.
-      * ``None``: pass the policy's scales through (e.g. coarse-to-fine then
-        actually zooms the sensor).
-    Ignored for the uniform patcher (its scale already drives the pre-crop)."""
+    ``override_scale`` is a patcher- and policy-agnostic view-scale override:
+      * ``None`` (default): pass the policy's own scales through (e.g.
+        coarse-to-fine actually zooms full → 0.5 → 0.25).
+      * a float: override every glimpse's scale to this constant, keeping the
+        policy's *centers*. For the uniform patcher this fixes the pre-crop
+        zoom; for the foveated/square patchers (which honor ``viewpoint.scales``,
+        ``fix_size = scale * H``) it fixes the sensor window (``1.0`` = full
+        image). Use a fixed value to eval a fixed-scale / per-rollout model
+        in-distribution, ``None`` to let a per-glimpse model follow the policy."""
     B = images.shape[0]
     if state is None:
         state = model.init_state(batch_size=B, canvas_grid_size=canvas_grid)
 
     # Foveated AND square patchers consume the full image and foveate / sample
-    # internally around viewpoint.centers (scale ignored) -- this is exactly how
-    # they are driven during pretraining, where the model always receives the
-    # full image. Only the uniform patcher, as wrapped by the downstream
+    # internally around viewpoint.centers, honoring viewpoint.scales
+    # (fix_size = scale * H) -- this is exactly how they are driven during
+    # pretraining, where the model always receives the full image. Only the
+    # uniform patcher, as wrapped by the downstream
     # classification / segmentation models (glimpse_size_px=None), expects a
     # pre-cropped glimpse. Routing the square patcher through the uniform
     # pre-crop path double-crops it (pre-cropped glimpse, then re-foveated),
@@ -65,40 +67,45 @@ def run_episode(
     )
 
     # The uniform patcher needs a pre-cropped glimpse whose pixel size matches
-    # what the model trained on. Training used glimpse_size_px = glimpse_grid_size
-    # × patch_size_px (CanViT-pretrain train/model.py); cropping at any other size
-    # silently changes the per-glimpse token count (e.g. an 8px-patch model
-    # trained at 64px would receive 256 tokens instead of 64 if cropped at 128px).
-    # Derive it from the model so it tracks the backbone's patch size for ANY
-    # patch size, and HARD-GUARD against a token-count mismatch.
+    # what the model trained on. Training used glimpse_size_px =
+    # (glimpse_grid_size - 1) * patch_stride_px + patch_size_px (CanViT-pretrain
+    # train/model.py); the patch-embed conv then yields exactly glimpse_grid_size
+    # tokens/side. Cropping at any other size silently changes the per-glimpse
+    # token count. Derive it from the model so it tracks the backbone's patch
+    # size AND stride for ANY config (stride == patch reduces to grid × patch),
+    # and HARD-GUARD against a token-count mismatch via the conv-output formula.
     if not consumes_full_image:
         patch_size = model.backbone.patch_size_px
+        stride = getattr(model.backbone, "patch_stride_px", patch_size)
         glimpse_grid = getattr(model, "glimpse_grid_size", None)
+        grid = glimpse_grid if glimpse_grid is not None else 8
         if glimpse_px is None:
-            glimpse_px = (glimpse_grid or 8) * patch_size
-        assert glimpse_px % patch_size == 0, (
-            f"glimpse_px={glimpse_px} is not divisible by patch_size_px={patch_size}"
+            glimpse_px = (grid - 1) * stride + patch_size
+        assert (glimpse_px - patch_size) % stride == 0 and glimpse_px >= patch_size, (
+            f"glimpse_px={glimpse_px} incompatible with patch_size_px={patch_size}, "
+            f"patch_stride_px={stride} (need (glimpse_px - patch) divisible by stride)"
         )
+        tokens = (glimpse_px - patch_size) // stride + 1
         if glimpse_grid is not None:
-            assert glimpse_px // patch_size == glimpse_grid, (
-                f"glimpse_px={glimpse_px} → {glimpse_px // patch_size} tokens/side, but the "
-                f"model was trained with glimpse_grid_size={glimpse_grid} tokens/side. The "
-                f"uniform patcher would see a different token count than in training. "
-                f"Set episode.glimpse_px={glimpse_grid * patch_size} (= glimpse_grid_size × "
-                f"patch_size_px), or leave it None to derive automatically."
+            assert tokens == glimpse_grid, (
+                f"glimpse_px={glimpse_px} → {tokens} tokens/side, but the model was trained "
+                f"with glimpse_grid_size={glimpse_grid} tokens/side. The uniform patcher would "
+                f"see a different token count than in training. Set episode.glimpse_px="
+                f"{(glimpse_grid - 1) * stride + patch_size} (= (grid-1)·stride + patch), or "
+                f"leave it None to derive automatically."
             )
 
     steps: list[EpisodeStep] = []
     for t in range(n_timesteps):
         vp = policy.step(t, state)
+        # Patcher-agnostic scale override: pin every glimpse to a fixed zoom
+        # while keeping the policy's centers (None -> policy's own scales).
+        # Drives the uniform pre-crop and the foveated/square sensor window
+        # (fix_size = scale * H) alike.
+        if override_scale is not None:
+            vp = replace(vp, scales=torch.full_like(vp.scales, float(override_scale)))
         if consumes_full_image:
             model_input = images
-            # Foveated/square honor viewpoint.scales (fix_size = scale * H).
-            # Optionally pin the zoom to a fixed scale, keeping policy centers.
-            if foveated_scale is not None:
-                vp = replace(
-                    vp, scales=torch.full_like(vp.scales, float(foveated_scale))
-                )
         else:
             model_input = sample_at_viewpoint(
                 spatial=images, viewpoint=vp, glimpse_size_px=glimpse_px,
