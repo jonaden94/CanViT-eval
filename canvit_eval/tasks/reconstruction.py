@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 from canvit_specialize.training.utils import collect_metadata
 
-from canvit_eval.config import TEACHER_REPO, EpisodeConfig, require_existing_dir
+from canvit_eval.config import EpisodeConfig, require_existing_dir, teacher_probe_for_model
 from canvit_eval.runner import eval_batches, load_model
 from canvit_eval.tasks.base import TaskConfig
 
@@ -62,6 +62,9 @@ class Config(TaskConfig):
     image_dir: Path = field(default_factory=_default_image_dir)
     scene_size: int = 512
     teacher_cache: Path | None = None
+    teacher_repo: str | None = None
+    """DINOv3 teacher to reconstruct against. None -> auto-select from the
+    model's recorded teacher_name (ViT-B fallback), matching how it was trained."""
 
     def run(self) -> Path:
         return evaluate(self)
@@ -86,7 +89,9 @@ def evaluate(cfg: Config) -> Path:
     # consume them immediately. Avoids accumulating 50k×1024×768 teacher
     # features in CPU RAM (~80 GB → OOM); per-batch tensors are ~50 MB on GPU.
     # cfg.teacher_cache is ignored in this path (no upfront precompute).
-    teacher = load_teacher(TEACHER_REPO, device)
+    teacher_repo = cfg.teacher_repo or teacher_probe_for_model(cfg.model_repo)[0]
+    log.info("Teacher: %s", teacher_repo)
+    teacher = load_teacher(teacher_repo, device)
 
     T = cfg.episode.n_timesteps
     accs = [_Acc() for _ in range(T)]

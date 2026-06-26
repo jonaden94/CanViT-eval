@@ -15,7 +15,13 @@ from torch.utils.data import DataLoader
 from canvit_pytorch import CanViTForImageClassification, resolve_canvit_repo
 from canvit_specialize.training.utils import collect_metadata
 
-from canvit_eval.config import DEFAULT_PRETRAINED_REPO, EpisodeConfig, imagenet_val_dir, require_existing_dir
+from canvit_eval.config import (
+    DEFAULT_PRETRAINED_REPO,
+    EpisodeConfig,
+    imagenet_val_dir,
+    require_existing_dir,
+    teacher_probe_for_model,
+)
 from canvit_eval.datasets.imagenet import make_in1k_dataset
 from canvit_eval.runner import eval_batches
 from canvit_eval.tasks.base import TaskConfig
@@ -42,7 +48,9 @@ class Config(TaskConfig):
     """Image-space resolution (input images are resized to scene_size × scene_size).
     Tracked alongside canvas_grid so downstream exporters can group runs by (scene, grid)."""
     episode: EpisodeConfig = field(default_factory=lambda: EpisodeConfig(canvas_grid=32))
-    probe_repo: str = DEFAULT_PROBE_REPO
+    probe_repo: str | None = None
+    """IN1k linear probe to fuse (frozen mode). None -> auto-select from the
+    model's recorded teacher_name (ViT-B fallback = the historical default)."""
     val_dir: Path = field(default_factory=imagenet_val_dir)
 
     def __post_init__(self) -> None:
@@ -60,12 +68,13 @@ def _load_classifier(cfg: Config, device: torch.device) -> CanViTForImageClassif
         clf = CanViTForImageClassification.from_pretrained(cfg.episode.model_repo)
         log.info("Loaded finetuned classifier from %s (%d classes)", cfg.episode.model_repo, clf.n_classes)
     else:
+        probe_repo = cfg.probe_repo or teacher_probe_for_model(cfg.episode.model_repo)[1]
         clf = CanViTForImageClassification.from_pretrained_with_probe(
-            pretrained_repo=cfg.episode.model_repo, probe_repo=cfg.probe_repo,
+            pretrained_repo=cfg.episode.model_repo, probe_repo=probe_repo,
             canvas_grid=FUSION_CANVAS_GRID,
         )
         log.info("Fused classifier from %s + %s (%d classes) using c=%d stats",
-                 cfg.episode.model_repo, cfg.probe_repo, clf.n_classes, FUSION_CANVAS_GRID)
+                 cfg.episode.model_repo, probe_repo, clf.n_classes, FUSION_CANVAS_GRID)
     return clf.to(device).eval()
 
 

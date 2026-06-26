@@ -23,7 +23,52 @@ DEFAULT_PRETRAINED_REPO = resolve_canvit_repo("canvitb16-add-vpe-pretrain-g128px
 # DINOv3 teacher repos (public, third-party — no resolve wrap).
 DINOV3_VITB_REPO = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 DINOV3_VITS_REPO = "facebook/dinov3-vits16-pretrain-lvd1689m"
-TEACHER_REPO = DINOV3_VITB_REPO
+DINOV3_VITL_REPO = "facebook/dinov3-vitl16-pretrain-lvd1689m"
+TEACHER_REPO = DINOV3_VITB_REPO  # historical default (ViT-B); used as fallback
+
+
+def _in1k_probe(variant: str) -> str:
+    return resolve_canvit_repo(f"dinov3-{variant}-lvd1689m-in1k-512x512-linear-clf-probe")
+
+
+# teacher_name -> (DINOv3 teacher repo, IN1k linear-probe repo). Mirrors
+# CanViT-pretrain's PROBE_REGISTRY so eval picks the SAME teacher + probe a run
+# was trained/validated against, keyed on the checkpoint's recorded teacher_name.
+# ViT-B entry == the historical hardcoded defaults, so ViT-B evals are unchanged.
+TEACHER_REGISTRY: dict[str, tuple[str, str]] = {
+    "dinov3_vits16": (DINOV3_VITS_REPO, _in1k_probe("vits16")),
+    "dinov3_vitb16": (DINOV3_VITB_REPO, _in1k_probe("vitb16")),
+    "dinov3_vitl16": (DINOV3_VITL_REPO, _in1k_probe("vitl16")),
+}
+
+
+def _read_teacher_name(model_repo: str) -> str | None:
+    """Read 'metadata.teacher_name' from a pretrained CanViT checkpoint's
+    config.json (local dir or HF repo). None if unavailable."""
+    import json
+    try:
+        p = Path(model_repo)
+        cfg = p / "config.json"
+        if not cfg.is_file():
+            from huggingface_hub import hf_hub_download
+            cfg = Path(hf_hub_download(model_repo, "config.json"))
+        meta = json.loads(cfg.read_text()).get("metadata") or {}
+        return meta.get("teacher_name")
+    except Exception as e:  # noqa: BLE001 — best-effort; fall back to ViT-B
+        log.warning("Could not read teacher_name from %s: %s", model_repo, e)
+        return None
+
+
+def teacher_probe_for_model(model_repo: str) -> tuple[str, str]:
+    """(teacher_repo, in1k_probe_repo) for a pretrained CanViT checkpoint,
+    auto-selected from its recorded teacher_name. Falls back to ViT-B when the
+    field/teacher is unknown (so behavior matches the prior ViT-B-only default)."""
+    name = _read_teacher_name(model_repo)
+    if name not in TEACHER_REGISTRY:
+        if name is not None:
+            log.warning("teacher_name %r not in TEACHER_REGISTRY; falling back to ViT-B", name)
+        name = "dinov3_vitb16"
+    return TEACHER_REGISTRY[name]
 
 
 def _resolve_path(env_var: str, known_paths: list[str], description: str) -> Path:
