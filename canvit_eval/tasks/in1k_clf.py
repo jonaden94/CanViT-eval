@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from canvit_pytorch import CanViTForImageClassification, resolve_canvit_repo
-from canvit_specialize.training.utils import collect_metadata
+from canvit_eval.run_metadata import collect_metadata
 
 from canvit_eval.config import (
     DEFAULT_PRETRAINED_REPO,

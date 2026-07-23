@@ -42,9 +42,9 @@ TEACHER_REGISTRY: dict[str, tuple[str, str]] = {
 }
 
 
-def _read_teacher_name(model_repo: str) -> str | None:
-    """Read 'metadata.teacher_name' from a pretrained CanViT checkpoint's
-    config.json (local dir or HF repo). None if unavailable."""
+def _read_pretrain_metadata(model_repo: str) -> dict:
+    """Read the 'metadata' dict from a pretrained CanViT checkpoint's config.json
+    (local dir or HF repo). Empty dict if unavailable."""
     import json
     try:
         p = Path(model_repo)
@@ -52,11 +52,63 @@ def _read_teacher_name(model_repo: str) -> str | None:
         if not cfg.is_file():
             from huggingface_hub import hf_hub_download
             cfg = Path(hf_hub_download(model_repo, "config.json"))
-        meta = json.loads(cfg.read_text()).get("metadata") or {}
-        return meta.get("teacher_name")
-    except Exception as e:  # noqa: BLE001 — best-effort; fall back to ViT-B
-        log.warning("Could not read teacher_name from %s: %s", model_repo, e)
-        return None
+        return json.loads(cfg.read_text()).get("metadata") or {}
+    except Exception as e:  # noqa: BLE001 — best-effort
+        log.warning("Could not read metadata from %s: %s", model_repo, e)
+        return {}
+
+
+def _read_teacher_name(model_repo: str) -> str | None:
+    """Read 'metadata.teacher_name' from a pretrained CanViT checkpoint's
+    config.json. None if unavailable."""
+    return _read_pretrain_metadata(model_repo).get("teacher_name")
+
+
+def resolve_scale_from_metadata(
+    meta: dict | None, override_scale: float | None
+) -> tuple[float | None, str]:
+    """Decide the effective eval view-scale from the pretrained model's metadata
+    and the user's ``override_scale``. Pure (no I/O). Returns (scale, reason).
+
+    Closes the foveated-scale footgun: a foveated/square model pretrained at a
+    FIXED view-scale must be evaluated at that same scale or every glimpse is OOD
+    (the bug that broke run 15025338). The rules:
+      * user set override_scale explicitly -> respect it (user wins).
+      * metadata has no ``pretrain_view_scale`` (all pre-fix checkpoints, and
+        uniform models) -> None, i.e. the policy's own scales (unchanged behavior).
+      * pretrained at a fixed scale -> pin every glimpse to it.
+      * pretrained multi-scale (per_rollout / per_glimpse) -> None; the model is
+        scale-robust, so let the policy zoom.
+    """
+    if override_scale is not None:
+        return override_scale, f"explicit override_scale={override_scale} (respecting user setting)"
+    vs = (meta or {}).get("pretrain_view_scale")
+    if not isinstance(vs, dict):
+        return None, "no pretrain_view_scale recorded; using the policy's own scales (override_scale=None)"
+    mode = vs.get("mode")
+    if mode == "fixed":
+        fixed = vs.get("fixed_scale")
+        if fixed is not None:
+            return float(fixed), (
+                f"model pretrained with {vs.get('patcher_name')} patcher at FIXED view-scale "
+                f"{fixed}; pinning every eval glimpse to it (override_scale={fixed})"
+            )
+        return None, "pretrain_view_scale.mode=fixed but no fixed_scale recorded; using policy scales"
+    return None, (
+        f"model pretrained with {vs.get('patcher_name')} patcher multi-scale (mode={mode}); "
+        "letting the policy's own scales through (override_scale=None)"
+    )
+
+
+def resolve_view_scale(model_repo: str, override_scale: float | None) -> float | None:
+    """Effective eval view-scale for ``model_repo``, auto-set from its recorded
+    pretraining view-scale when the user gave no explicit ``override_scale``.
+    Logs the decision loudly. No-op (returns ``override_scale``) for any checkpoint
+    without ``metadata.pretrain_view_scale`` — i.e. every pre-fix repo is unchanged."""
+    meta = _read_pretrain_metadata(model_repo)
+    effective, reason = resolve_scale_from_metadata(meta, override_scale)
+    log.info("view-scale: %s", reason)
+    return effective
 
 
 def teacher_probe_for_model(model_repo: str) -> tuple[str, str]:

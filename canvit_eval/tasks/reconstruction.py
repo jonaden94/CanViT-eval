@@ -15,7 +15,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from canvit_specialize.training.utils import collect_metadata
+from canvit_eval.run_metadata import collect_metadata
 
 from canvit_eval.config import EpisodeConfig, require_existing_dir, teacher_probe_for_model
 from canvit_eval.runner import eval_batches, load_model

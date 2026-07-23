@@ -20,7 +20,7 @@ import torch
 import torch.nn.functional as F
 import tyro
 from canvit_pytorch import CanViTForSemanticSegmentation, SegmentationProbe, resolve_canvit_repo
-from canvit_specialize.datasets.ade20k import (
+from canvit_pytorch.data.ade20k import (
     IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms,
 )
 from torch.utils.data import DataLoader

@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 import tyro
 from canvit_pytorch.teacher import load_teacher
-from canvit_specialize.datasets.ade20k import ADE20kDataset, ResizeMode, make_val_transforms
+from canvit_pytorch.data.ade20k import ADE20kDataset, ResizeMode, make_val_transforms
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 

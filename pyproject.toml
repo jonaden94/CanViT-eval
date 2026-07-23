@@ -5,7 +5,6 @@ description = "Evaluation and benchmarking for CanViT"
 requires-python = ">=3.12"
 dependencies = [
     "canvit-pytorch[fovi]",
-    "canvit-specialize",
     "pillow>=10.0.0",
     "tyro>=1.0.0",
     "tqdm>=4.60.0",
@@ -86,7 +85,6 @@ explicit = true
 # `canvit-pytorch = { git = "https://github.com/jonaden94/CanViT-PyTorch.git" }`)
 # to install without that sibling present. See README "Local multi-repo setup".
 canvit-pytorch = { path = "../CanViT-PyTorch", editable = true }
-canvit-specialize = { path = "../CanViT-specialize", editable = true }
 fovi = { path = "../fovi", editable = true }
 # Pin cu128 wheels on Linux GPU hosts for the default `cuda` group. On macOS,
 # fall back to default PyPI (CPU-only wheels) for local development. The `cu126`
