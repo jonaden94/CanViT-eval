@@ -13,6 +13,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from canvit_pytorch import CanViTForImageClassification, resolve_canvit_repo
+from canvit_pytorch.model_source import load_classifier
 from canvit_eval.run_metadata import collect_metadata
 
 from canvit_eval.config import (
@@ -65,7 +66,7 @@ class Config(TaskConfig):
 
 def _load_classifier(cfg: Config, device: torch.device) -> CanViTForImageClassification:
     if cfg.mode == "finetuned":
-        clf = CanViTForImageClassification.from_pretrained(cfg.episode.model_repo)
+        clf = load_classifier(cfg.episode.model_repo)
         log.info("Loaded finetuned classifier from %s (%d classes)", cfg.episode.model_repo, clf.n_classes)
     else:
         probe_repo = cfg.probe_repo or teacher_probe_for_model(cfg.episode.model_repo)[1]

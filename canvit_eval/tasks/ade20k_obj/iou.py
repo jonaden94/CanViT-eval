@@ -19,7 +19,8 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import tyro
-from canvit_pytorch import CanViTForSemanticSegmentation, SegmentationProbe, resolve_canvit_repo
+from canvit_pytorch import CanViTForSemanticSegmentation, resolve_canvit_repo
+from canvit_pytorch.model_source import load_segmentation_probe
 from canvit_pytorch.data.ade20k import (
     IGNORE_LABEL, NUM_CLASSES, ADE20kDataset, ResizeMode, make_val_transforms,
 )
@@ -203,7 +204,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
         assert isinstance(mask_res_px, int) and mask_res_px > 0, mask_res_px
 
         probe_repo = resolve_canvit_repo(f"probe-ade20k-40k-dv3b-{res_px}px")
-        probe = SegmentationProbe.from_pretrained(probe_repo).to(device).eval()
+        probe = load_segmentation_probe(probe_repo).to(device).eval()
         log.info("  %dpx: features=%s grid=%d mask_res=%d teacher=%s probe=%s",
                  res_px, path.name, grid, mask_res_px, teacher_repo, probe_repo)
 

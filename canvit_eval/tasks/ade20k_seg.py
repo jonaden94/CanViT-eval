@@ -16,7 +16,8 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from canvit_pytorch import CanViTForSemanticSegmentation, SegmentationProbe
+from canvit_pytorch import CanViTForSemanticSegmentation
+from canvit_pytorch.model_source import load_segmentation_probe
 from canvit_pytorch.probes import SegmentationProbe as SegmentationProbeType
 from canvit_pytorch.teacher import load_teacher
 from canvit_pytorch.data.ade20k import (
@@ -168,7 +169,7 @@ def run_dinov3(cfg: DINOv3Config) -> Path:
     require_existing_dir(cfg.ade20k_root, description="ADE20K root", env_var="ADE20K_ROOT")
 
     teacher = load_teacher(cfg.teacher_repo, device)
-    probe = SegmentationProbe.from_pretrained(cfg.probe_repo).to(device).eval()
+    probe = load_segmentation_probe(cfg.probe_repo).to(device).eval()
     grid = cfg.eval_resolution // 16  # DINOv3 patch size
     loader = _loader(cfg)
 

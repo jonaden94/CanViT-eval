@@ -7,6 +7,7 @@ from typing import Any
 
 import torch
 from canvit_pytorch.model.pretraining.hub import CanViTForPretrainingHFHub
+from canvit_pytorch.model_source import load_pretraining
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -26,7 +27,7 @@ class BatchResult:
 
 def load_model(model_repo: str, device: torch.device) -> CanViTForPretrainingHFHub:
     log.info("Loading model: %s", model_repo)
-    model = CanViTForPretrainingHFHub.from_pretrained(model_repo).to(device).eval()
+    model = load_pretraining(model_repo).to(device).eval()
     log.info("  canvas_dim=%d, local_dim=%d", model.canvas_dim, model.local_dim)
     return model
 

@@ -43,19 +43,16 @@ TEACHER_REGISTRY: dict[str, tuple[str, str]] = {
 
 
 def _read_pretrain_metadata(model_repo: str) -> dict:
-    """Read the 'metadata' dict from a pretrained CanViT checkpoint's config.json
-    (local dir or HF repo). Empty dict if unavailable."""
-    import json
-    try:
-        p = Path(model_repo)
-        cfg = p / "config.json"
-        if not cfg.is_file():
-            from huggingface_hub import hf_hub_download
-            cfg = Path(hf_hub_download(model_repo, "config.json"))
-        return json.loads(cfg.read_text()).get("metadata") or {}
-    except Exception as e:  # noqa: BLE001 — best-effort
-        log.warning("Could not read metadata from %s: %s", model_repo, e)
-        return {}
+    """Read the pretraining 'metadata' dict for ``model_repo``. Empty dict if unavailable.
+
+    Delegates to canvit_pytorch so a training ``.pt`` works here too, not just an HF dir or
+    Hub id. That matters more than it looks: a loader that accepted ``.pt`` *weights* while
+    this stayed config.json-only would evaluate a foveated model at the wrong view scale —
+    silently, since the symptom is a decaying metric rather than an error.
+    """
+    from canvit_pytorch.model_source import read_pretrain_metadata
+
+    return read_pretrain_metadata(model_repo)
 
 
 def _read_teacher_name(model_repo: str) -> str | None:
